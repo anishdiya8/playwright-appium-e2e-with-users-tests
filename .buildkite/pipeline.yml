@@ -1,0 +1,54 @@
+env:
+  DEVICE_NAME: "iPhone 15"
+  API_BASE_URL: "http://127.0.0.1:3000"
+  X_API_KEY: "demo-key-123"
+
+steps:
+  - label: ":xcode: Build iOS app (sim)"
+    key: "build-app"
+    agents: { queue: "mac" }
+    commands:
+      - bash scripts/build-simulator-app.sh
+    artifact_paths:
+      - "artifacts/SimpleAPIAppanish.app.zip"
+
+  - wait
+
+  - label: ":test_tube: E2E (Playwright + Appium)"
+    key: "e2e"
+    agents: { queue: "mac" }
+    plugins:
+      - junit-annotate#v2.4.0:
+          artifact_path: "junit-report.xml"
+    concurrency: 1
+    concurrency_group: "ios-simulator"
+    timeout_in_minutes: 60
+    commands:
+      # deps
+      - node --version && npm --version
+      - npm ci
+
+      # bring app artifact into workspace
+      - buildkite-agent artifact download "artifacts/SimpleAPIAppanish.app.zip" .
+      - unzip -q SimpleAPIAppanish.app.zip -d artifacts
+      - export APP_PATH="$(/usr/bin/find artifacts -name 'SimpleAPIAppanish.app' -maxdepth 2 -print -quit)"
+      - echo "Using APP_PATH=$APP_PATH"
+
+      # boot sim + start appium
+      - bash scripts/sim-boot.sh "$DEVICE_NAME"
+      - bash scripts/start-appium.sh
+      - bash scripts/wait-on-http.sh http://127.0.0.1:4723/status 45
+
+      # (optional) start your local API here if your app needs it
+      # - npm run api:start & bash scripts/wait-on-http.sh http://127.0.0.1:3000/healthz 45
+
+      # run tests
+      - export DEVICE_NAME="$DEVICE_NAME" API_BASE_URL="$API_BASE_URL" X_API_KEY="$X_API_KEY"
+      - npm run test:ci
+
+      # stop appium
+      - bash scripts/stop-appium.sh || true
+    artifact_paths:
+      - "playwright-report/**"
+      - "junit-report.xml"
+      - "artifacts/**"

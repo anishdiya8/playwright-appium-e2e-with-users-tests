@@ -1,0 +1,50 @@
+/Users/user/Library/Developer/Xcode/DerivedData/SimpleAPIAppanish-ddufydmpunqlildogpkdvxqxalcy/Build/Products/Debug-iphonesimulator/SimpleAPIAppanish.app
+
+
+npx appium@latest --base-path / --port ${APPIUM_PORT:-4723} --log-timestamp > artifacts/appium.log 2>&1 &
+npx playwright test
+
+
+npx appium@latest --base-path / --port ${APPIUM_PORT:-4723} --log-timestamp > artifacts/appium.log 2>&1 &
+
+npx playwright test
+
+
+
+
+
+chmod +x scripts/start-appium.sh
+
+==
+# Graceful stop (if you saved a pidfile)
+[ -f .appium.pid ] && kill -TERM "$(cat .appium.pid)" && rm .appium.pid
+
+# Or stop by port (no pidfile needed)
+kill -TERM "$(lsof -tiTCP:4723 -sTCP:LISTEN -P -n)" 2>/dev/null || true
+
+# If it’s stubborn:
+kill -9 "$(lsof -tiTCP:4723 -sTCP:LISTEN -P -n)" 2>/dev/null || true
+
+# Verify it’s gone (should print nothing)
+lsof -iTCP:4723 -sTCP:LISTEN -P -n
+
+
+==
+source scripts/env.sh
+
+npx playwright test --workers=1
+
+
+only one test
+
+npx playwright test tests/appium.spec.ts -g "Error banner when API fails" --workers=1 --retries=0
+=====another iteration
+
+cd /Users/user/Desktop/Files-not-on-onedrive/anish-projects/playwright-appium-e2e-with-users-tests
+source scripts/env.sh   # if your tests expect those env vars
+
+# run everything
+npx playwright test
+
+# or: run just the iOS/Appium suite
+npx playwright test tests/appium.spec.ts --workers=1 --retries=0

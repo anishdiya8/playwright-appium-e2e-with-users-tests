@@ -1,0 +1,26 @@
+{
+  "name": "simpleapiappanish-e2e-appium",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:app": "bash scripts/build-simulator-app.sh",
+    "appium:drivers": "npx appium driver install xcuitest",
+    "appium:start": "bash scripts/start-appium.sh",
+    "appium:stop": "bash scripts/stop-appium.sh",
+    "test": "playwright test",
+    "test:ci": "playwright test --workers=1 --retries=0",
+    "report": "playwright show-report",
+    "report:show": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.47.0",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "appium": "^3.0.2",
+    "webdriverio": "^8.39.0"
+  },
+  "optionalDependencies": {
+    "appium-xcuitest-driver": "^10.1.2"
+  }
+}

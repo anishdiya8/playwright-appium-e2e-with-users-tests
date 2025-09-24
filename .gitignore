@@ -1,0 +1,7 @@
+node_modules
+build
+artifacts
+playwright-report
+test-results
+.appium.pid
+app-src
