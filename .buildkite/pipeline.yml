@@ -1,14 +1,38 @@
 env:
   DEVICE_NAME: "iPhone 15"
-  API_BASE_URL: "http://127.0.0.1:3000"
+  API_BASE_URL: "https://sdbnrxt339.execute-api.ap-southeast-2.amazonaws.com"
+  # API_BASE_URL: "http://127.0.0.1:3000"
   X_API_KEY: "demo-key-123"
+  IOS_APP_REPO: "git@github.com:anishdiya8/SimpleAPIAppanish.git"
+  IOS_APP_BRANCH: "main"
+  IOS_SCHEME: "SimpleAPIAppanish"
 
 steps:
   - label: ":xcode: Build iOS app (sim)"
     key: "build-app"
     agents: { queue: "mac" }
+    env:
+      IOS_APP_BRANCH: "${IOS_APP_BRANCH:-main}"
+      IOS_SCHEME:     "${IOS_SCHEME:-SimpleAPIAppanish}"   # change if your scheme differs
     commands:
-      - bash scripts/build-simulator-app.sh
+      - : "${IOS_APP_REPO:?Set IOS_APP_REPO in Buildkite env (git URL to your iOS app repo)}"
+      - rm -rf app-src
+      - git clone --depth=1 -b "$IOS_APP_BRANCH" "$IOS_APP_REPO" app-src
+
+      - xcodebuild -version
+      - ./scripts/sim-boot.sh "iPhone 15"   # optional: early fail if sim/runtime missing
+      - pushd app-src >/dev/null
+      - xcodebuild \
+          -scheme "$IOS_SCHEME" \
+          -configuration Debug \
+          -sdk iphonesimulator \
+          -destination "platform=iOS Simulator,name=iPhone 15" \
+          -derivedDataPath ../build/derived
+      - popd >/dev/null
+
+      - export APP_PATH="build/derived/Build/Products/Debug-iphonesimulator/${IOS_SCHEME}.app"
+      - mkdir -p artifacts
+      - ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" artifacts/SimpleAPIAppanish.app.zip
     artifact_paths:
       - "artifacts/SimpleAPIAppanish.app.zip"
 
@@ -32,6 +56,7 @@ steps:
       - buildkite-agent artifact download "artifacts/SimpleAPIAppanish.app.zip" .
       - unzip -q SimpleAPIAppanish.app.zip -d artifacts
       - export APP_PATH="$(/usr/bin/find artifacts -name 'SimpleAPIAppanish.app' -maxdepth 2 -print -quit)"
+      - '[ -d "$APP_PATH" ] || { echo "ERROR: APP_PATH not found"; ls -R artifacts; exit 1; }'
       - echo "Using APP_PATH=$APP_PATH"
 
       # boot sim + start appium
@@ -39,15 +64,17 @@ steps:
       - bash scripts/start-appium.sh
       - bash scripts/wait-on-http.sh http://127.0.0.1:4723/status 45
 
-      # (optional) start your local API here if your app needs it
-      # - npm run api:start & bash scripts/wait-on-http.sh http://127.0.0.1:3000/healthz 45
+      # (Hosted API checks – no local API)
+      - echo "Using API_BASE_URL=$API_BASE_URL"
+      - env | sort | grep -E 'API_BASE_URL|DEVICE_NAME|X_API_KEY' || true
+      - curl -fsS "$API_BASE_URL/healthz" || echo "No /healthz (that’s fine if your API doesn’t have one)"
 
       # run tests
       - export DEVICE_NAME="$DEVICE_NAME" API_BASE_URL="$API_BASE_URL" X_API_KEY="$X_API_KEY"
       - npm run test:ci
 
-      # stop appium
-      - bash scripts/stop-appium.sh || true
+      # stop appium (and help debug if it fails)
+      - bash scripts/stop-appium.sh || { echo "Dumping appium.log due to stop failure"; tail -n +1 artifacts/appium.log || true; exit 1; }
     artifact_paths:
       - "playwright-report/**"
       - "junit-report.xml"

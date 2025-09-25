@@ -48,3 +48,46 @@ npx playwright test
 
 # or: run just the iOS/Appium suite
 npx playwright test tests/appium.spec.ts --workers=1 --retries=0
+===trying on buildkite before device farm
+
+scripts/*.sh are executable (chmod +x scripts/*.sh).
+
+...
+aws api
+sam build -t template.yaml --region ap-southeast-2
+sam deploy --guided -t template.yaml --region ap-southeast-2
+
+
+test it
+API_URL="https://<api-id>.execute-api.ap-southeast-2.amazonaws.com"
+
+# Health check (no auth header needed)
+curl -i "$API_URL/healthz"
+
+# Users endpoint (needs x-api-key header)
+curl -i -H 'x-api-key: demo-key-123' "$API_URL/api/users?page=2"
+
+...
+API_URL="https://sdbnrxt339.execute-api.ap-southeast-2.amazonaws.com"
+
+
+API_URL="https://sdbnrxt339.execute-api.ap-southeast-2.amazonaws.com"
+
+API_URL="https://sdbnrxt339.execute-api.ap-southeast-2.amazonaws.com"
+
+
+# Health check (no auth header needed)
+curl -i "$API_URL/healthz"
+
+# Users endpoint (needs x-api-key header)
+curl -i -H 'x-api-key: demo-key-123' "$API_URL/api/users?page=2"
+===
+Stack Name [sam-app]: reqres-lambda
+AWS Region [ap-southeast-2]:            ← press Enter
+Parameter ApiKeyValue [demo-key-123]:   ← enter your key or press Enter to keep demo-key-123
+Confirm changes before deploy [y/N]: N
+Allow SAM CLI IAM role creation [Y/n]: Y
+Disable rollback [y/N]: N
+Save arguments to configuration file [Y/n]: Y
+SAM configuration file [samconfig.toml]:   ← press Enter
+SAM configuration environment [default]:    ← press Enter
