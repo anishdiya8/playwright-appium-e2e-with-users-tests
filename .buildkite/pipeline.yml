@@ -10,7 +10,7 @@ env:
 steps:
   - label: ":xcode: Build iOS app (sim)"
     key: "build-app"
-    agents: { queue: "mac" }
+    agents: { queue: "default" }
     env:
       IOS_APP_BRANCH: "${IOS_APP_BRANCH:-main}"
       IOS_SCHEME:     "${IOS_SCHEME:-SimpleAPIAppanish}"   # change if your scheme differs
