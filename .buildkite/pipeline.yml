@@ -1,38 +1,23 @@
 env:
-  DEVICE_NAME: "iPhone 15"
+  DEVICE_NAME: "iPhone 16 Pro"
   API_BASE_URL: "https://sdbnrxt339.execute-api.ap-southeast-2.amazonaws.com"
-  # API_BASE_URL: "http://127.0.0.1:3000"
   X_API_KEY: "demo-key-123"
-  IOS_APP_REPO: "git@github.com:anishdiya8/SimpleAPIAppanish.git"
-  IOS_APP_BRANCH: "main"
-  IOS_SCHEME: "SimpleAPIAppanish"
+
+  # ⬇️ Paste a publicly reachable or presigned URL to your ZIP here
+  # (e.g., S3 presigned URL, GitHub Release asset, etc.)
+  APP_ZIP_URL: "https://<your-host>/SimpleAPIAppanish.app.zip"
 
 steps:
-  - label: ":xcode: Build iOS app (sim)"
+  - label: ":package: Download prebuilt iOS app"
     key: "build-app"
     agents: { queue: "default" }
-    env:
-      IOS_APP_BRANCH: "${IOS_APP_BRANCH:-main}"
-      IOS_SCHEME: "${IOS_SCHEME:-SimpleAPIAppanish}"   # change if your scheme differs
     commands:
-      - '[ -n "${IOS_APP_REPO:-}" ] || { echo "ERROR: IOS_APP_REPO not set (git SSH URL to your iOS app repo)"; exit 1; }'
-      - rm -rf app-src
-      - git clone --depth=1 -b "$IOS_APP_BRANCH" "$IOS_APP_REPO" app-src
-
-      - xcodebuild -version
-      - ./scripts/sim-boot.sh "iPhone 15"   # optional: early fail if sim/runtime missing
-      - pushd app-src >/dev/null
-      - xcodebuild \
-          -scheme "$IOS_SCHEME" \
-          -configuration Debug \
-          -sdk iphonesimulator \
-          -destination "platform=iOS Simulator,name=iPhone 15" \
-          -derivedDataPath ../build/derived
-      - popd >/dev/null
-
-      - export APP_PATH="build/derived/Build/Products/Debug-iphonesimulator/${IOS_SCHEME}.app"
+      - '[ -n "${APP_ZIP_URL:-}" ] || { echo "ERROR: APP_ZIP_URL not set"; exit 1; }'
       - mkdir -p artifacts
-      - ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" artifacts/SimpleAPIAppanish.app.zip
+      - echo "Downloading $APP_ZIP_URL"
+      - curl -fL "$APP_ZIP_URL" -o artifacts/SimpleAPIAppanish.app.zip
+      # quick peek at the zip contents for debugging
+      - 'unzip -l artifacts/SimpleAPIAppanish.app.zip | sed -n "1,30p"'
     artifact_paths:
       - "artifacts/SimpleAPIAppanish.app.zip"
 
@@ -59,8 +44,9 @@ steps:
       - '[ -d "$APP_PATH" ] || { echo "ERROR: APP_PATH not found"; ls -R artifacts; exit 1; }'
       - echo "Using APP_PATH=$APP_PATH"
 
-      # boot sim + start appium
+      # boot sim + start appium (use iPhone 16 Pro)
       - bash scripts/sim-boot.sh "$DEVICE_NAME"
+      - export SIM_NAME="$DEVICE_NAME"      # ensure start-appium uses the same device name
       - bash scripts/start-appium.sh
       - bash scripts/wait-on-http.sh http://127.0.0.1:4723/status 45
 
