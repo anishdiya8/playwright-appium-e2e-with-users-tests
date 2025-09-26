@@ -15,7 +15,7 @@ steps:
       IOS_APP_BRANCH: "${IOS_APP_BRANCH:-main}"
       IOS_SCHEME: "${IOS_SCHEME:-SimpleAPIAppanish}"   # change if your scheme differs
     commands:
-      - ': "${IOS_APP_REPO:?Set IOS_APP_REPO in Buildkite env (git URL to your iOS app repo)}"'
+      - '[ -n "${IOS_APP_REPO:-}" ] || { echo "ERROR: IOS_APP_REPO not set (git SSH URL to your iOS app repo)"; exit 1; }'
       - rm -rf app-src
       - git clone --depth=1 -b "$IOS_APP_BRANCH" "$IOS_APP_REPO" app-src
 
