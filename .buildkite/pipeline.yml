@@ -3,23 +3,13 @@ env:
   API_BASE_URL: "https://sdbnrxt339.execute-api.ap-southeast-2.amazonaws.com"
   X_API_KEY: "demo-key-123"
 
-  # ⬇️ Paste a publicly reachable or presigned URL to your ZIP here
-  # (e.g., S3 presigned URL, GitHub Release asset, etc.)
-  APP_ZIP_URL: "https://<your-host>/SimpleAPIAppanish.app.zip"
-
 steps:
-  - label: ":package: Download prebuilt iOS app"
+  - label: ":package: Upload prebuilt iOS app"
     key: "build-app"
     agents: { queue: "default" }
     commands:
-      - '[ -n "${APP_ZIP_URL:-}" ] || { echo "ERROR: APP_ZIP_URL not set"; exit 1; }'
-      - mkdir -p artifacts
-      - echo "Downloading $APP_ZIP_URL"
-      - curl -fL "$APP_ZIP_URL" -o artifacts/SimpleAPIAppanish.app.zip
-      # quick peek at the zip contents for debugging
-      - 'unzip -l artifacts/SimpleAPIAppanish.app.zip | sed -n "1,30p"'
-    artifact_paths:
-      - "artifacts/SimpleAPIAppanish.app.zip"
+      - '[[ -f "SimpleAPIAppanish.app.zip" ]] || { echo "ZIP missing in repo root"; ls -la; exit 1; }'
+      - buildkite-agent artifact upload "SimpleAPIAppanish.app.zip"
 
   - wait
 
@@ -38,7 +28,7 @@ steps:
       - npm ci
 
       # bring app artifact into workspace
-      - buildkite-agent artifact download "artifacts/SimpleAPIAppanish.app.zip" .
+      - buildkite-agent artifact download "SimpleAPIAppanish.app.zip" .
       - unzip -q SimpleAPIAppanish.app.zip -d artifacts
       - export APP_PATH="$(/usr/bin/find artifacts -name 'SimpleAPIAppanish.app' -maxdepth 2 -print -quit)"
       - '[ -d "$APP_PATH" ] || { echo "ERROR: APP_PATH not found"; ls -R artifacts; exit 1; }'
