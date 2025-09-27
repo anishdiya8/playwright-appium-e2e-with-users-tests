@@ -16,14 +16,10 @@ steps:
   - label: ":test_tube: E2E (Playwright + Appium)"
     key: "e2e"
     agents: { queue: "default" }
-    plugins:
-      - junit-annotate#v2.4.0:
-          artifacts: "junit-report.xml"
     concurrency: 1
     concurrency_group: "ios-simulator"
     timeout_in_minutes: 60
     commands:
-      # deps
       - node --version && npm --version
       - npm ci
 
@@ -34,24 +30,35 @@ steps:
       - '[ -d "$APP_PATH" ] || { echo "ERROR: APP_PATH not found"; ls -R artifacts; exit 1; }'
       - echo "Using APP_PATH=$APP_PATH"
 
-      # boot sim + start appium (use iPhone 16 Pro)
+      # boot sim + start appium
       - bash scripts/sim-boot.sh "$DEVICE_NAME"
-      - export SIM_NAME="$DEVICE_NAME"      # ensure start-appium uses the same device name
+      - export SIM_NAME="$DEVICE_NAME"
       - bash scripts/start-appium.sh
       - bash scripts/wait-on-http.sh http://127.0.0.1:4723/status 45
 
-      # Hosted API checks – no local API
+      # hosted API checks
       - echo "Using API_BASE_URL=$API_BASE_URL"
       - env | sort | grep -E 'API_BASE_URL|DEVICE_NAME|X_API_KEY' || true
-      - curl -fsS "$API_BASE_URL/healthz" || echo "No /healthz (that's fine if your API doesn't have one)"
+      - curl -fsS "$API_BASE_URL/healthz" || echo "No /healthz (that's fine)"
 
-      # run tests
+      # run tests (Playwright must emit junit-report.xml)
       - export DEVICE_NAME="$DEVICE_NAME" API_BASE_URL="$API_BASE_URL" X_API_KEY="$X_API_KEY"
       - npm run test:ci
 
-      # stop appium (and help debug if it fails)
+      # stop appium
       - bash scripts/stop-appium.sh || { echo "Dumping appium.log due to stop failure"; tail -n +1 artifacts/appium.log || true; exit 1; }
     artifact_paths:
       - "playwright-report/**"
       - "junit-report.xml"
       - "artifacts/**"
+
+  - wait
+
+  - label: ":memo: Annotate JUnit"
+    agents: { queue: "default" }
+    plugins:
+      - junit-annotate#v2.4.0:
+          artifacts: "junit-report.xml"
+          soft_fail: true
+    commands:
+      - echo "Annotating JUnit results"

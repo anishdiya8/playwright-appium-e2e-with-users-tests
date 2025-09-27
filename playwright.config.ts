@@ -4,32 +4,30 @@ export default defineConfig({
   // ---- Tests ----
   testDir: 'tests',
   fullyParallel: false,
-  workers: 1,                       // iOS Simulator/WDA works best single-threaded
-  timeout: 240_000,                 // allow time for WDA/app to settle
+  workers: 1,                        // iOS Simulator/WDA works best single-threaded
+  timeout: 240_000,                  // allow time for WDA/app to settle
   expect: { timeout: 10_000 },
-  retries: 0,                       // keep CI deterministic; we attach our own videos
+  retries: process.env.CI ? 0 : 0,   // deterministic in CI; adjust locally if you want
+
   forbidOnly: !!process.env.CI,
   outputDir: 'test-results',
 
   // ---- Reports (for Buildkite artifacts & annotations) ----
   reporter: [
     ['list'],
-    ['junit', { outputFile: 'junit-report.xml' }],          // picked up by junit-annotate
     ['html',  { open: 'never', outputFolder: 'playwright-report' }],
+    ['junit', { outputFile: 'junit-report.xml' }], // picked up by junit-annotate step
   ],
 
-  // ---- Defaults (we're not using PW browsers; Appium handles video) ----
+  // ---- Defaults (we drive a native app via Appium, not PW browsers) ----
   use: {
-    trace: 'on-first-retry',        // harmless even with retries=0; useful locally if you bump retries
-    video: 'off',                   // Appium screen-recording provides MP4s
-    screenshot: 'only-on-failure',  // helpful for quick glance in report
+    trace: 'off',                    // optional: keep off to avoid extra artifacts in CI
+    video: 'off',                    // Appium provides MP4s when you record in tests/fixtures
+    screenshot: 'only-on-failure',
   },
 
-  // Optional: name the project so reports look tidy
+  // Optional: tidy project label in reports
   projects: [
-    {
-      name: 'ios-appium',
-      use: {},
-    },
+    { name: 'ios-appium' },
   ],
 });
