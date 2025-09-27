@@ -18,7 +18,7 @@ steps:
     agents: { queue: "default" }
     plugins:
       - junit-annotate#v2.4.0:
-          artifact_path: "junit-report.xml"
+          artifacts: "junit-report.xml"
     concurrency: 1
     concurrency_group: "ios-simulator"
     timeout_in_minutes: 60
