@@ -2,14 +2,18 @@ env:
   DEVICE_NAME: "iPhone 16 Pro"
   API_BASE_URL: "https://sdbnrxt339.execute-api.ap-southeast-2.amazonaws.com"
   X_API_KEY: "demo-key-123"
+  APP_ZIP_URL: "https://ios-ci-artifacts-bucket-anish.s3.ap-southeast-2.amazonaws.com/ios/SimpleAPIAppanish.app.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAUHVSWCJQTPALQ4XL%2F20250927%2Fap-southeast-2%2Fs3%2Faws4_request&X-Amz-Date=20250927T214239Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=da195de7cbd1dce892e43e378fe17edebbe8cc7041a0ef7b6959cb013c7bb38c"   # <-- paste your full pre-signed URL here
 
 steps:
-  - label: ":package: Upload prebuilt iOS app"
+  - label: ":package: Download prebuilt iOS app"
     key: "build-app"
     agents: { queue: "default" }
     commands:
-      - '[[ -f "SimpleAPIAppanish.app.zip" ]] || { echo "ZIP missing in repo root"; ls -la; exit 1; }'
-      - buildkite-agent artifact upload "SimpleAPIAppanish.app.zip"
+      - mkdir -p artifacts
+      - echo "Downloading $APP_ZIP_URL"
+      - curl -fL "$APP_ZIP_URL" -o artifacts/SimpleAPIAppanish.app.zip
+      # make the zip available to later steps
+      - buildkite-agent artifact upload "artifacts/SimpleAPIAppanish.app.zip"
 
   - wait
 
@@ -24,9 +28,11 @@ steps:
       - npm ci
 
       # bring app artifact into workspace
-      - buildkite-agent artifact download "SimpleAPIAppanish.app.zip" .
-      - unzip -q SimpleAPIAppanish.app.zip -d artifacts
-      - export APP_PATH="$(/usr/bin/find artifacts -name 'SimpleAPIAppanish.app' -maxdepth 2 -print -quit)"
+      - buildkite-agent artifact download "artifacts/SimpleAPIAppanish.app.zip" .
+      - unzip -q artifacts/SimpleAPIAppanish.app.zip -d artifacts
+
+      # robust .app detection (handles .app at top-level or nested)
+      - export APP_PATH="$(/usr/bin/find artifacts -type d -name 'SimpleAPIAppanish.app' -print -quit)"
       - '[ -d "$APP_PATH" ] || { echo "ERROR: APP_PATH not found"; ls -R artifacts; exit 1; }'
       - echo "Using APP_PATH=$APP_PATH"
 
@@ -41,7 +47,7 @@ steps:
       - env | sort | grep -E 'API_BASE_URL|DEVICE_NAME|X_API_KEY' || true
       - curl -fsS "$API_BASE_URL/healthz" || echo "No /healthz (that's fine)"
 
-      # run tests (Playwright must emit junit-report.xml)
+      # run tests
       - export DEVICE_NAME="$DEVICE_NAME" API_BASE_URL="$API_BASE_URL" X_API_KEY="$X_API_KEY"
       - npm run test:ci
 
