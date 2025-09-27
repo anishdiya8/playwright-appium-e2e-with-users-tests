@@ -54,6 +54,7 @@ scripts/*.sh are executable (chmod +x scripts/*.sh).
 
 ...
 aws api
+cd "/Users/user/Desktop/Files-not-on-onedrive/anish-projects/reqres-api/reqres-lambda"  
 sam build -t template.yaml --region ap-southeast-2
 sam deploy --guided -t template.yaml --region ap-southeast-2
 
