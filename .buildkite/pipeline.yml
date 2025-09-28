@@ -7,21 +7,26 @@ env:
 steps:
   - label: ":package: Download prebuilt iOS app"
     key: build-app
-    agents:
-      queue: default
+    agents: { queue: default }
     commands:
+      - "set -euo pipefail"
       - "mkdir -p artifacts"
       - "echo Downloading app zip"
       - "curl -fL \"$$APP_ZIP_URL\" -o artifacts/SimpleAPIAppanish.app.zip"
       - "du -h artifacts/SimpleAPIAppanish.app.zip || true"
+      - |
+        # Sanity: ensure we didn't download an error page
+        BYTES="$(wc -c < artifacts/SimpleAPIAppanish.app.zip || echo 0)"
+        echo "Zip size (bytes) = $$BYTES"
+        [ "$$BYTES" -ge 5000000 ] || { echo "ERROR: app zip too small; presigned URL likely bad/expired"; exit 1; }
+        unzip -l artifacts/SimpleAPIAppanish.app.zip | sed -n '1,5p;$p' || true
       - "buildkite-agent artifact upload artifacts/SimpleAPIAppanish.app.zip"
 
   - wait
 
   - label: ":test_tube: E2E (Playwright + Appium)"
     key: e2e
-    agents:
-      queue: default
+    agents: { queue: default }
     concurrency: 1
     concurrency_group: ios-simulator
     timeout_in_minutes: 60
@@ -37,17 +42,24 @@ steps:
         buildkite-agent artifact download "artifacts/SimpleAPIAppanish.app.zip" .
         echo "Before unzip:" && ls -lah artifacts || true
         du -h artifacts/SimpleAPIAppanish.app.zip || true
+
+        # Validate again (defensive)
+        BYTES="$(wc -c < artifacts/SimpleAPIAppanish.app.zip || echo 0)"
+        echo "Zip size (bytes) = $$BYTES"
+        [ "$$BYTES" -ge 5000000 ] || { echo "ERROR: app zip too small; presigned URL likely bad/expired"; exit 1; }
+        unzip -l artifacts/SimpleAPIAppanish.app.zip | sed -n '1,5p;$p' || true
+
         unzip -oq artifacts/SimpleAPIAppanish.app.zip -d artifacts
         echo "After unzip:" && ls -lah artifacts || true
 
-        # detect .app
+        # detect .app (allow a little depth and any name)
         echo "[debug] scanning for .app bundles under ./artifacts..."
-        /usr/bin/find artifacts -maxdepth 2 -type d -name '*.app' -print || true
+        /usr/bin/find artifacts -maxdepth 3 -type d -name '*.app' -print || true
 
-        APP_PATH="$(/usr/bin/find artifacts -maxdepth 2 -type d -name '*.app' -print | head -n 1)"
+        APP_PATH="$(/usr/bin/find artifacts -maxdepth 3 -type d -name '*.app' -print | head -n 1)"
 
         if [ -z "$$APP_PATH" ] || [ ! -d "$$APP_PATH" ]; then
-          echo "ERROR: APP_PATH not found"
+          echo "ERROR: APP_PATH not found after unzip"
           echo "Tree under ./artifacts for debugging:"
           /bin/ls -lR artifacts || true
           exit 1
@@ -55,28 +67,59 @@ steps:
 
         echo "Using APP_PATH=$$APP_PATH"
 
-        # Persist for later commands in this step
-        if [ -z "$$BUILDKITE_ENV_FILE" ]; then
+        # Persist for later commands in this step + export for current shell
+        if [ -z "${BUILDKITE_ENV_FILE:-}" ]; then
           echo "ERROR: BUILDKITE_ENV_FILE is not set"; exit 1
         fi
-        echo "APP_PATH=$$APP_PATH" >> "$$BUILDKITE_ENV_FILE"
+        {
+          echo "APP_PATH=$$APP_PATH"
+          echo "IOS_APP_DIR=$$APP_PATH"
+        } >> "$$BUILDKITE_ENV_FILE"
+        export IOS_APP_DIR="$$APP_PATH"
 
         # boot sim + start appium
         bash scripts/sim-boot.sh "$$DEVICE_NAME"
         export SIM_NAME="$$DEVICE_NAME"
+
+        # If sim-boot writes UDID, read it (optional but useful for install)
+        if [ -f artifacts/sim-udid.txt ]; then
+          export BOOTED_UDID="$(cat artifacts/sim-udid.txt || true)"
+        else
+          # Fallback: pick the first Booted device UDID
+          export BOOTED_UDID="$(xcrun simctl list devices booted | sed -n 's/.*(\([A-F0-9-]\{36\}\)).*/\1/p' | head -n1 || true)"
+        fi
+        echo "Booted UDID: $${BOOTED_UDID:-unknown}"
+
         bash scripts/start-appium.sh
         bash scripts/wait-on-http.sh http://127.0.0.1:4723/status 45
 
+        # (Optional but robust) install the app & export bundle id
+        if [ -n "${BOOTED_UDID:-}" ] && [ -d "$$IOS_APP_DIR" ]; then
+          echo "[install] Installing $$IOS_APP_DIR to $$BOOTED_UDID"
+          xcrun simctl install "$$BOOTED_UDID" "$$IOS_APP_DIR" || { echo "[install] simctl install failed (continuing with app path launch)"; true; }
+          # Read CFBundleIdentifier so tests can launch by bundle id if supported
+          if [ -f "$$IOS_APP_DIR/Info.plist" ]; then
+            IOS_BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$$IOS_APP_DIR/Info.plist" 2>/dev/null || true)"
+            if [ -n "$$IOS_BUNDLE_ID" ]; then
+              echo "Detected IOS_BUNDLE_ID=$$IOS_BUNDLE_ID"
+              echo "IOS_BUNDLE_ID=$$IOS_BUNDLE_ID" >> "$$BUILDKITE_ENV_FILE"
+              export IOS_BUNDLE_ID="$$IOS_BUNDLE_ID"
+            fi
+          fi
+        fi
+
         # hosted API checks
         echo "Using API_BASE_URL=$$API_BASE_URL"
-        env | sort | grep -E 'API_BASE_URL|DEVICE_NAME|X_API_KEY|APP_PATH' || true
-        if [ -z "$$APP_PATH" ] || [ ! -d "$$APP_PATH" ]; then
-          echo "ERROR: APP_PATH missing after persistence"; exit 1
+        env | sort | grep -E 'API_BASE_URL|DEVICE_NAME|X_API_KEY|APP_PATH|IOS_APP_DIR|IOS_BUNDLE_ID' || true
+
+        # final sanity before tests
+        if [ -z "$$IOS_APP_DIR" ] || [ ! -d "$$IOS_APP_DIR" ]; then
+          echo "ERROR: IOS_APP_DIR missing/invalid: $$IOS_APP_DIR"; exit 1
         fi
         curl -fsS "$$API_BASE_URL/healthz" || echo "No /healthz (that's fine)"
 
-        # run tests
-        export DEVICE_NAME="$$DEVICE_NAME" API_BASE_URL="$$API_BASE_URL" X_API_KEY="$$X_API_KEY"
+        # run tests (export all inputs explicitly)
+        export DEVICE_NAME="$$DEVICE_NAME" API_BASE_URL="$$API_BASE_URL" X_API_KEY="$$X_API_KEY" IOS_APP_DIR="$$IOS_APP_DIR" IOS_BUNDLE_ID="${IOS_BUNDLE_ID:-}"
         npm run test:ci
 
         # stop appium
@@ -89,8 +132,7 @@ steps:
   - wait
 
   - label: ":memo: Annotate JUnit"
-    agents:
-      queue: default
+    agents: { queue: default }
     plugins:
       - junit-annotate#v2.4.0:
           artifacts: "junit-report.xml"
