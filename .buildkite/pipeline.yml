@@ -40,28 +40,26 @@ steps:
         unzip -oq artifacts/SimpleAPIAppanish.app.zip -d artifacts
         echo "After unzip:" && ls -lah artifacts || true
 
-        # detect .app and persist to the step environment
+        # detect .app
         echo "[debug] scanning for .app bundles under ./artifacts..."
         /usr/bin/find artifacts -maxdepth 2 -type d -name '*.app' -print || true
 
-        APP_PATH="$(
-          /usr/bin/find artifacts -maxdepth 2 -type d -name '*.app' -print | head -n 1
-        )"
+        APP_PATH="$(/usr/bin/find artifacts -maxdepth 2 -type d -name '*.app' -print | head -n 1)"
 
-        if [ -z "${APP_PATH:-}" ] || [ ! -d "${APP_PATH}" ]; then
+        if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
           echo "ERROR: APP_PATH not found"
           echo "Tree under ./artifacts for debugging:"
           /bin/ls -lR artifacts || true
           exit 1
         fi
 
-        echo "Using APP_PATH=${APP_PATH}"
+        echo "Using APP_PATH=$APP_PATH"
 
         # Persist for later commands in this step
-        if [ -z "${BUILDKITE_ENV_FILE:-}" ]; then
+        if [ -z "$BUILDKITE_ENV_FILE" ]; then
           echo "ERROR: BUILDKITE_ENV_FILE is not set"; exit 1
         fi
-        echo "APP_PATH=${APP_PATH}" >> "$BUILDKITE_ENV_FILE"
+        echo "APP_PATH=$APP_PATH" >> "$BUILDKITE_ENV_FILE"
 
         # boot sim + start appium
         bash scripts/sim-boot.sh "$DEVICE_NAME"
@@ -72,8 +70,7 @@ steps:
         # hosted API checks
         echo "Using API_BASE_URL=$API_BASE_URL"
         env | sort | grep -E 'API_BASE_URL|DEVICE_NAME|X_API_KEY|APP_PATH' || true
-        # Safe check (avoid ${VAR:?msg} which breaks interpolation)
-        if [ -z "${APP_PATH:-}" ] || [ ! -d "${APP_PATH}" ]; then
+        if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
           echo "ERROR: APP_PATH missing after persistence"; exit 1
         fi
         curl -fsS "$API_BASE_URL/healthz" || echo "No /healthz (that's fine)"
