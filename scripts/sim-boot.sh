@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
+if [ -f ".env" ]; then set -a; . ./.env; set +a; fi
 # Requested simulator name: CLI arg > env > default
 DEVICE_NAME="${1:-${DEVICE_NAME:-iPhone 16 Pro}}"
 echo "[sim-boot] Target device: ${DEVICE_NAME}"

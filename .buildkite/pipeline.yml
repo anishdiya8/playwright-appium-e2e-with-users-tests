@@ -9,12 +9,12 @@ steps:
     key: build-app
     agents: { queue: default }
     commands:
-      - "set -euo pipefail"
-      - "mkdir -p artifacts"
-      - "echo Downloading app zip"
-      - "curl -fL \"$$APP_ZIP_URL\" -o artifacts/SimpleAPIAppanish.app.zip"
-      - "du -h artifacts/SimpleAPIAppanish.app.zip || true"
-      - "buildkite-agent artifact upload artifacts/SimpleAPIAppanish.app.zip"
+      - set -euo pipefail
+      - mkdir -p artifacts
+      - echo "Downloading app zip"
+      - curl -fL "$APP_ZIP_URL" -o artifacts/SimpleAPIAppanish.app.zip
+      - du -h artifacts/SimpleAPIAppanish.app.zip || true
+      - buildkite-agent artifact upload artifacts/SimpleAPIAppanish.app.zip
 
   - wait
 
@@ -26,10 +26,6 @@ steps:
     timeout_in_minutes: 60
     commands: |
       set -euo pipefail
-
-      # --- Clean any stray simulators (fresh start)
-      xcrun simctl shutdown all || true
-      killall Simulator || true
 
       # deps
       node --version && npm --version
@@ -47,83 +43,81 @@ steps:
       /usr/bin/find artifacts -maxdepth 3 -type d -name '*.app' -print || true
       APP_PATH="$(/usr/bin/find artifacts -maxdepth 3 -type d -name '*.app' -print | head -n 1)"
 
-      if [ -z "$$APP_PATH" ] || [ ! -d "$$APP_PATH" ]; then
+      if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
         echo "ERROR: APP_PATH not found"
         /bin/ls -lR artifacts || true
         exit 1
       fi
 
-      echo "Using APP_PATH=$$APP_PATH"
+      echo "Using APP_PATH=$APP_PATH"
 
       # Persist + export for this step (tests & start-appium should use IOS_APP_DIR)
       if [ -z "${BUILDKITE_ENV_FILE:-}" ]; then
         echo "ERROR: BUILDKITE_ENV_FILE is not set"; exit 1
       fi
       {
-        echo "APP_PATH=$$APP_PATH"
-        echo "IOS_APP_DIR=$$APP_PATH"
-      } >> "$$BUILDKITE_ENV_FILE"
-      export IOS_APP_DIR="$$APP_PATH"
+        echo "APP_PATH=$APP_PATH"      # expand now
+        echo "IOS_APP_DIR=$APP_PATH"
+      } >> "$BUILDKITE_ENV_FILE"
+      export IOS_APP_DIR="$APP_PATH"
+
+      # Clean up any strays (optional but helps with "multiple sims open")
+      xcrun simctl shutdown all || true
+      rm -f artifacts/sim-udid.txt || true
 
       # Boot ONE simulator and capture its UDID
-      bash scripts/sim-boot.sh "$$DEVICE_NAME"
-      export SIM_NAME="$$DEVICE_NAME"
+      bash scripts/sim-boot.sh "$DEVICE_NAME"
+      export SIM_NAME="$DEVICE_NAME"
       BOOTED_UDID="$(cat artifacts/sim-udid.txt 2>/dev/null || true)"
-      if [ -z "$$BOOTED_UDID" ]; then
+      if [ -z "$BOOTED_UDID" ]; then
         BOOTED_UDID="$(xcrun simctl list devices booted | sed -n 's/.*(\([A-F0-9-]\{36\}\)).*/\1/p' | head -n1 || true)"
       fi
-      echo "Booted UDID: $${BOOTED_UDID:-unknown}"
+      echo "Booted UDID: ${BOOTED_UDID:-unknown}"
+      if [ -z "${BOOTED_UDID:-}" ]; then
+        echo "ERROR: No booted simulator UDID found"; exit 1
+      fi
 
-      # Export both SIM_UDID (used by appium.ts) and BOOTED_UDID for scripts
+      # Persist UDIDs with expanded values (single $)
       {
-        echo "SIM_UDID=$$BOOTED_UDID"
-        echo "BOOTED_UDID=$$BOOTED_UDID"
-      } >> "$$BUILDKITE_ENV_FILE"
-      export SIM_UDID="$$BOOTED_UDID"
-      export BOOTED_UDID="$$BOOTED_UDID"
+        echo "SIM_UDID=$BOOTED_UDID"
+        echo "BOOTED_UDID=$BOOTED_UDID"
+      } >> "$BUILDKITE_ENV_FILE"
+      export SIM_UDID="$BOOTED_UDID"
+      export BOOTED_UDID="$BOOTED_UDID"
 
-      # Optional: read bundle id & pre-install (launch by bundle id if your helper supports it)
-      if [ -f "$$IOS_APP_DIR/Info.plist" ]; then
-        IOS_BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$$IOS_APP_DIR/Info.plist" 2>/dev/null || true)"
-        if [ -n "$$IOS_BUNDLE_ID" ] && [ -n "${BOOTED_UDID:-}" ]; then
-          echo "[install] xcrun simctl install $$BOOTED_UDID $$IOS_APP_DIR"
-          xcrun simctl install "$$BOOTED_UDID" "$$IOS_APP_DIR" || true
-          echo "IOS_BUNDLE_ID=$$IOS_BUNDLE_ID" >> "$$BUILDKITE_ENV_FILE"
-          export IOS_BUNDLE_ID="$$IOS_BUNDLE_ID"
+      # Optional: read bundle id & pre-install
+      if [ -f "$IOS_APP_DIR/Info.plist" ]; then
+        IOS_BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$IOS_APP_DIR/Info.plist" 2>/dev/null || true)"
+        if [ -n "${IOS_BUNDLE_ID:-}" ]; then
+          echo "[install] xcrun simctl install $BOOTED_UDID $IOS_APP_DIR"
+          xcrun simctl install "$BOOTED_UDID" "$IOS_APP_DIR" || true
+          echo "IOS_BUNDLE_ID=$IOS_BUNDLE_ID" >> "$BUILDKITE_ENV_FILE"
+          export IOS_BUNDLE_ID="$IOS_BUNDLE_ID"
         fi
       fi
 
-      # --- Inject env INTO the simulator (so SpringBoard launches the app with it)
-      if [ -n "${BOOTED_UDID:-}" ]; then
-        xcrun simctl spawn "$$BOOTED_UDID" launchctl setenv API_BASE_URL "$$API_BASE_URL"
-        xcrun simctl spawn "$$BOOTED_UDID" launchctl setenv X_API_KEY "$$X_API_KEY"
-        xcrun simctl spawn "$$BOOTED_UDID" launchctl setenv NODE_ENV "test"
-
-        echo "[sim env] verifying from inside the simulator:"
-        xcrun simctl spawn "$$BOOTED_UDID" printenv | grep -E '^API_BASE_URL=|^X_API_KEY=|^NODE_ENV=' \
-          | sed -E 's/(X_API_KEY=).*/\1***redacted***/'
-      else
-        echo "ERROR: No booted simulator UDID found"; exit 1
-      fi
+      # ---- Inject env into the Simulator (no code changes needed) ----
+      echo "[sim-env] Injecting API_BASE_URL and X_API_KEY into simulator launchd env"
+      xcrun simctl spawn "$BOOTED_UDID" launchctl setenv API_BASE_URL "$API_BASE_URL"
+      xcrun simctl spawn "$BOOTED_UDID" launchctl setenv X_API_KEY "$X_API_KEY"
+      echo "[sim-env] Verifying injected vars:"
+      xcrun simctl spawn "$BOOTED_UDID" printenv | grep -E '^API_BASE_URL=|^X_API_KEY=' | sed -E 's/(X_API_KEY=).*/\1***redacted***/' || true
 
       # Start Appium WITHOUT booting/creating another sim
       bash scripts/start-appium.sh
       bash scripts/wait-on-http.sh http://127.0.0.1:4723/status 45
 
-      # hosted API checks (outside the sim)
-      echo "Using API_BASE_URL=$$API_BASE_URL"
-      env | sort | grep -E 'API_BASE_URL|DEVICE_NAME|X_API_KEY|APP_PATH|IOS_APP_DIR|IOS_BUNDLE_ID|SIM_UDID|BOOTED_UDID' \
-        | sed -E 's/(X_API_KEY=).*/\1***redacted***/' || true
-      curl -fsS "$$API_BASE_URL/healthz" || echo "No /healthz (that's fine)"
+      # hosted API checks
+      echo "Using API_BASE_URL=$API_BASE_URL"
+      env | sort | grep -E 'API_BASE_URL|DEVICE_NAME|X_API_KEY|APP_PATH|IOS_APP_DIR|IOS_BUNDLE_ID|BOOTED_UDID' || true
+      if [ -z "$IOS_APP_DIR" ] || [ ! -d "$IOS_APP_DIR" ]; then
+        echo "ERROR: IOS_APP_DIR missing/invalid: $IOS_APP_DIR"; exit 1
+      fi
+      curl -fsS "$API_BASE_URL/healthz" || echo "No /healthz (that's fine)"
 
-      # run tests
-      export DEVICE_NAME="$$DEVICE_NAME" API_BASE_URL="$$API_BASE_URL" X_API_KEY="$$X_API_KEY" IOS_APP_DIR="$$IOS_APP_DIR" IOS_BUNDLE_ID="${IOS_BUNDLE_ID:-}" SIM_UDID="${SIM_UDID:-}"
+      # run tests (note: app picks env from simulator; still export for helpers)
+      export DEVICE_NAME="$DEVICE_NAME" API_BASE_URL="$API_BASE_URL" X_API_KEY="$X_API_KEY" IOS_APP_DIR="$IOS_APP_DIR" IOS_BUNDLE_ID="${IOS_BUNDLE_ID:-}"
       npm run test:ci
-
-      # (optional) clean up env inside the sim
-      xcrun simctl spawn "$$BOOTED_UDID" launchctl unsetenv API_BASE_URL || true
-      xcrun simctl spawn "$$BOOTED_UDID" launchctl unsetenv X_API_KEY || true
-      xcrun simctl spawn "$$BOOTED_UDID" launchctl unsetenv NODE_ENV || true
 
       # stop appium
       bash scripts/stop-appium.sh || { echo "Dumping appium.log due to stop failure"; tail -n +1 artifacts/appium.log || true; exit 1; }

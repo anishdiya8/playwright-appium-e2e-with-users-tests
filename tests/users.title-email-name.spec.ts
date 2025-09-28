@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { newIOSSession, endIOSSession, savePng } from '../helpers/appium';
+import { test, expect } from './fixtures/appium';
 
 async function waitForAnyVisibleCells(driver: any, timeoutMs = 10_000) {
   const start = Date.now();
