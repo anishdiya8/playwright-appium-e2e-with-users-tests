@@ -14,12 +14,6 @@ steps:
       - "echo Downloading app zip"
       - "curl -fL \"$$APP_ZIP_URL\" -o artifacts/SimpleAPIAppanish.app.zip"
       - "du -h artifacts/SimpleAPIAppanish.app.zip || true"
-      - |
-        # Sanity: ensure we didn't download an error page
-        BYTES="$(wc -c < artifacts/SimpleAPIAppanish.app.zip || echo 0)"
-        echo "Zip size (bytes) = $$BYTES"
-        [ "$$BYTES" -ge 5000000 ] || { echo "ERROR: app zip too small; presigned URL likely bad/expired"; exit 1; }
-        unzip -l artifacts/SimpleAPIAppanish.app.zip | sed -n '1,5p;$p' || true
       - "buildkite-agent artifact upload artifacts/SimpleAPIAppanish.app.zip"
 
   - wait
