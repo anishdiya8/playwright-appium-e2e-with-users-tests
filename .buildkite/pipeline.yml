@@ -2,7 +2,8 @@ env:
   DEVICE_NAME: "iPhone 16 Pro"
   API_BASE_URL: "https://sdbnrxt339.execute-api.ap-southeast-2.amazonaws.com"
   X_API_KEY: "demo-key-123"
-  APP_ZIP_URL: "https://ios-ci-artifacts-bucket-anish.s3.ap-southeast-2.amazonaws.com/ios/SimpleAPIAppanish.app.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAUHVSWCJQTPALQ4XL%2F20250927%2Fap-southeast-2%2Fs3%2Faws4_request&X-Amz-Date=20250927T224608Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=ab10be1924c4bf5304dbedc9f8aedf186b46557f39dec24865d638fdf8accc6e"   # <-- paste your full pre-signed URL here
+  # Pre-signed S3 URL:
+  APP_ZIP_URL: "https://ios-ci-artifacts-bucket-anish.s3.ap-southeast-2.amazonaws.com/ios/SimpleAPIAppanish.app.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAUHVSWCJQTPALQ4XL%2F20250927%2Fap-southeast-2%2Fs3%2Faws4_request&X-Amz-Date=20250927T224608Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=ab10be1924c4bf5304dbedc9f8aedf186b46557f39dec24865d638fdf8accc6e"
 
 steps:
   - label: ":package: Download prebuilt iOS app"
@@ -10,8 +11,9 @@ steps:
     agents: { queue: "default" }
     commands:
       - mkdir -p artifacts
-      - echo "Downloading $APP_ZIP_URL"
+      - echo "Downloading app zip"
       - curl -fL "$APP_ZIP_URL" -o artifacts/SimpleAPIAppanish.app.zip
+      - du -h artifacts/SimpleAPIAppanish.app.zip || true
       # make the zip available to later steps
       - buildkite-agent artifact upload "artifacts/SimpleAPIAppanish.app.zip"
 
@@ -29,11 +31,14 @@ steps:
 
       # bring app artifact into workspace
       - buildkite-agent artifact download "artifacts/SimpleAPIAppanish.app.zip" .
-      - unzip -q artifacts/SimpleAPIAppanish.app.zip -d artifacts
+      - du -h artifacts/SimpleAPIAppanish.app.zip || true
+      - unzip -oq artifacts/SimpleAPIAppanish.app.zip -d artifacts
 
-      # robust .app detection (handles .app at top-level or nested)
-      - export APP_PATH="$(/usr/bin/find artifacts -type d -name 'SimpleAPIAppanish.app' -print -quit)"
-      - '[ -d "$APP_PATH" ] || { echo "ERROR: APP_PATH not found"; ls -R artifacts; exit 1; }'
+      # BSD/macOS-safe app bundle detection
+      - export APP_PATH="$(
+          /usr/bin/find ./artifacts -type d \( -name 'SimpleAPIAppanish.app' -o -name 'SimpleAPIAppanish*_flat.app' \) | head -n 1
+        )"
+      - '[ -n "$APP_PATH" ] && [ -d "$APP_PATH" ] || { echo "ERROR: APP_PATH not found"; ls -lR artifacts; exit 1; }'
       - echo "Using APP_PATH=$APP_PATH"
 
       # boot sim + start appium
