@@ -33,22 +33,21 @@ steps:
 
       # bring app artifact into workspace
       - buildkite-agent artifact download "artifacts/SimpleAPIAppanish.app.zip" .
+      - echo "Before unzip:" && ls -lah artifacts || true
       - du -h artifacts/SimpleAPIAppanish.app.zip || true
       - unzip -oq artifacts/SimpleAPIAppanish.app.zip -d artifacts
-      - ls -lah artifacts
+      - echo "After unzip:" && ls -lah artifacts || true
 
-      # Robust .app detection without 'find'
+      # Robust .app detection with 'find' (fixes empty APP_PATH issue)
       - |
-        APP_PATH=""
-        for CAND in artifacts/*.app artifacts/*/*.app; do
-          if [ -d "$CAND" ]; then
-            APP_PATH="$CAND"
-            break
-          fi
-        done
-        if [ -z "${APP_PATH}" ] || [ ! -d "${APP_PATH}" ]; then
+        set -euo pipefail
+        APP_PATH="$(
+          /usr/bin/find artifacts -maxdepth 2 -type d -name '*.app' -print | head -n 1
+        )"
+        if [ -z "${APP_PATH:-}" ] || [ ! -d "${APP_PATH}" ]; then
           echo "ERROR: APP_PATH not found"
-          ls -lR artifacts || true
+          echo "Tree under ./artifacts for debugging:"
+          /bin/ls -lR artifacts || true
           exit 1
         fi
         echo "Using APP_PATH=${APP_PATH}"
