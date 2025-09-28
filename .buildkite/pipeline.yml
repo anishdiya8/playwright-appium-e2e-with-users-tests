@@ -12,7 +12,7 @@ steps:
     commands:
       - "mkdir -p artifacts"
       - "echo Downloading app zip"
-      - "curl -fL \"$APP_ZIP_URL\" -o artifacts/SimpleAPIAppanish.app.zip"
+      - "curl -fL \"$$APP_ZIP_URL\" -o artifacts/SimpleAPIAppanish.app.zip"
       - "du -h artifacts/SimpleAPIAppanish.app.zip || true"
       - "buildkite-agent artifact upload artifacts/SimpleAPIAppanish.app.zip"
 
@@ -46,37 +46,37 @@ steps:
 
         APP_PATH="$(/usr/bin/find artifacts -maxdepth 2 -type d -name '*.app' -print | head -n 1)"
 
-        if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
+        if [ -z "$$APP_PATH" ] || [ ! -d "$$APP_PATH" ]; then
           echo "ERROR: APP_PATH not found"
           echo "Tree under ./artifacts for debugging:"
           /bin/ls -lR artifacts || true
           exit 1
         fi
 
-        echo "Using APP_PATH=$APP_PATH"
+        echo "Using APP_PATH=$$APP_PATH"
 
         # Persist for later commands in this step
-        if [ -z "$BUILDKITE_ENV_FILE" ]; then
+        if [ -z "$$BUILDKITE_ENV_FILE" ]; then
           echo "ERROR: BUILDKITE_ENV_FILE is not set"; exit 1
         fi
-        echo "APP_PATH=$APP_PATH" >> "$BUILDKITE_ENV_FILE"
+        echo "APP_PATH=$$APP_PATH" >> "$$BUILDKITE_ENV_FILE"
 
         # boot sim + start appium
-        bash scripts/sim-boot.sh "$DEVICE_NAME"
-        export SIM_NAME="$DEVICE_NAME"
+        bash scripts/sim-boot.sh "$$DEVICE_NAME"
+        export SIM_NAME="$$DEVICE_NAME"
         bash scripts/start-appium.sh
         bash scripts/wait-on-http.sh http://127.0.0.1:4723/status 45
 
         # hosted API checks
-        echo "Using API_BASE_URL=$API_BASE_URL"
+        echo "Using API_BASE_URL=$$API_BASE_URL"
         env | sort | grep -E 'API_BASE_URL|DEVICE_NAME|X_API_KEY|APP_PATH' || true
-        if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
+        if [ -z "$$APP_PATH" ] || [ ! -d "$$APP_PATH" ]; then
           echo "ERROR: APP_PATH missing after persistence"; exit 1
         fi
-        curl -fsS "$API_BASE_URL/healthz" || echo "No /healthz (that's fine)"
+        curl -fsS "$$API_BASE_URL/healthz" || echo "No /healthz (that's fine)"
 
         # run tests
-        export DEVICE_NAME="$DEVICE_NAME" API_BASE_URL="$API_BASE_URL" X_API_KEY="$X_API_KEY"
+        export DEVICE_NAME="$$DEVICE_NAME" API_BASE_URL="$$API_BASE_URL" X_API_KEY="$$X_API_KEY"
         npm run test:ci
 
         # stop appium
