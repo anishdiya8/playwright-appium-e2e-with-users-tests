@@ -14,7 +14,6 @@ steps:
       - echo "Downloading app zip"
       - curl -fL "$APP_ZIP_URL" -o artifacts/SimpleAPIAppanish.app.zip
       - du -h artifacts/SimpleAPIAppanish.app.zip || true
-      # make the zip available to later steps
       - buildkite-agent artifact upload "artifacts/SimpleAPIAppanish.app.zip"
 
   - wait
@@ -26,6 +25,9 @@ steps:
     concurrency_group: "ios-simulator"
     timeout_in_minutes: 60
     commands:
+      - set -euo pipefail
+
+      # deps
       - node --version && npm --version
       - npm ci
 
@@ -33,13 +35,24 @@ steps:
       - buildkite-agent artifact download "artifacts/SimpleAPIAppanish.app.zip" .
       - du -h artifacts/SimpleAPIAppanish.app.zip || true
       - unzip -oq artifacts/SimpleAPIAppanish.app.zip -d artifacts
+      - ls -lah artifacts
 
-      # BSD/macOS-safe app bundle detection
-      - export APP_PATH="$(
-          /usr/bin/find ./artifacts -type d \( -name 'SimpleAPIAppanish.app' -o -name 'SimpleAPIAppanish*_flat.app' \) | head -n 1
-        )"
-      - '[ -n "$APP_PATH" ] && [ -d "$APP_PATH" ] || { echo "ERROR: APP_PATH not found"; ls -lR artifacts; exit 1; }'
-      - echo "Using APP_PATH=$APP_PATH"
+      # Robust .app detection without 'find'
+      - |
+        APP_PATH=""
+        for CAND in artifacts/*.app artifacts/*/*.app; do
+          if [ -d "$CAND" ]; then
+            APP_PATH="$CAND"
+            break
+          fi
+        done
+        if [ -z "${APP_PATH}" ] || [ ! -d "${APP_PATH}" ]; then
+          echo "ERROR: APP_PATH not found"
+          ls -lR artifacts || true
+          exit 1
+        fi
+        echo "Using APP_PATH=${APP_PATH}"
+        export APP_PATH
 
       # boot sim + start appium
       - bash scripts/sim-boot.sh "$DEVICE_NAME"
