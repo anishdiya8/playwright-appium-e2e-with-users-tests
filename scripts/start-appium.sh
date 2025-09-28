@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
+if [ -f ".env" ]; then set -a; . ./.env; set +a; fi
 # Optional env loader (keeps any pre-set vars; won't overwrite)
 [ -f "./scripts/env.sh" ] && source "./scripts/env.sh"
 
