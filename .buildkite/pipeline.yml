@@ -2,45 +2,45 @@ env:
   DEVICE_NAME: "iPhone 16 Pro"
   API_BASE_URL: "https://sdbnrxt339.execute-api.ap-southeast-2.amazonaws.com"
   X_API_KEY: "demo-key-123"
-  # Pre-signed S3 URL:
   APP_ZIP_URL: "https://ios-ci-artifacts-bucket-anish.s3.ap-southeast-2.amazonaws.com/ios/SimpleAPIAppanish.app.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAUHVSWCJQTPALQ4XL%2F20250927%2Fap-southeast-2%2Fs3%2Faws4_request&X-Amz-Date=20250927T224608Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=ab10be1924c4bf5304dbedc9f8aedf186b46557f39dec24865d638fdf8accc6e"
 
 steps:
   - label: ":package: Download prebuilt iOS app"
-    key: "build-app"
-    agents: { queue: "default" }
+    key: build-app
+    agents:
+      queue: default
     commands:
-      - mkdir -p artifacts
-      - echo "Downloading app zip"
-      - curl -fL "$APP_ZIP_URL" -o artifacts/SimpleAPIAppanish.app.zip
-      - du -h artifacts/SimpleAPIAppanish.app.zip || true
-      - buildkite-agent artifact upload "artifacts/SimpleAPIAppanish.app.zip"
+      - "mkdir -p artifacts"
+      - "echo Downloading app zip"
+      - "curl -fL \"$APP_ZIP_URL\" -o artifacts/SimpleAPIAppanish.app.zip"
+      - "du -h artifacts/SimpleAPIAppanish.app.zip || true"
+      - "buildkite-agent artifact upload artifacts/SimpleAPIAppanish.app.zip"
 
   - wait
 
   - label: ":test_tube: E2E (Playwright + Appium)"
-    key: "e2e"
-    agents: { queue: "default" }
+    key: e2e
+    agents:
+      queue: default
     concurrency: 1
-    concurrency_group: "ios-simulator"
+    concurrency_group: ios-simulator
     timeout_in_minutes: 60
     commands:
-      - set -euo pipefail
-
-      # deps
-      - node --version && npm --version
-      - npm ci
-
-      # bring app artifact into workspace
-      - buildkite-agent artifact download "artifacts/SimpleAPIAppanish.app.zip" .
-      - echo "Before unzip:" && ls -lah artifacts || true
-      - du -h artifacts/SimpleAPIAppanish.app.zip || true
-      - unzip -oq artifacts/SimpleAPIAppanish.app.zip -d artifacts
-      - echo "After unzip:" && ls -lah artifacts || true
-
-      # --- Robust .app detection + persist to step env ---
       - |
         set -euo pipefail
+
+        # deps
+        node --version && npm --version
+        npm ci
+
+        # bring app artifact into workspace
+        buildkite-agent artifact download "artifacts/SimpleAPIAppanish.app.zip" .
+        echo "Before unzip:" && ls -lah artifacts || true
+        du -h artifacts/SimpleAPIAppanish.app.zip || true
+        unzip -oq artifacts/SimpleAPIAppanish.app.zip -d artifacts
+        echo "After unzip:" && ls -lah artifacts || true
+
+        # detect .app and persist to the step environment
         echo "[debug] scanning for .app bundles under ./artifacts..."
         /usr/bin/find artifacts -maxdepth 2 -type d -name '*.app' -print || true
 
@@ -57,30 +57,33 @@ steps:
 
         echo "Using APP_PATH=${APP_PATH}"
 
-        # Persist for subsequent commands in this step
+        # Persist for later commands in this step
         if [ -z "${BUILDKITE_ENV_FILE:-}" ]; then
           echo "ERROR: BUILDKITE_ENV_FILE is not set"; exit 1
         fi
         echo "APP_PATH=${APP_PATH}" >> "$BUILDKITE_ENV_FILE"
 
-      # boot sim + start appium
-      - bash scripts/sim-boot.sh "$DEVICE_NAME"
-      - export SIM_NAME="$DEVICE_NAME"
-      - bash scripts/start-appium.sh
-      - bash scripts/wait-on-http.sh http://127.0.0.1:4723/status 45
+        # boot sim + start appium
+        bash scripts/sim-boot.sh "$DEVICE_NAME"
+        export SIM_NAME="$DEVICE_NAME"
+        bash scripts/start-appium.sh
+        bash scripts/wait-on-http.sh http://127.0.0.1:4723/status 45
 
-      # hosted API checks
-      - echo "Using API_BASE_URL=$API_BASE_URL"
-      - env | sort | grep -E 'API_BASE_URL|DEVICE_NAME|X_API_KEY|APP_PATH' || true
-      - test -d "${APP_PATH:?APP_PATH not set after persistence}"
-      - curl -fsS "$API_BASE_URL/healthz" || echo "No /healthz (that's fine)"
+        # hosted API checks
+        echo "Using API_BASE_URL=$API_BASE_URL"
+        env | sort | grep -E 'API_BASE_URL|DEVICE_NAME|X_API_KEY|APP_PATH' || true
+        # Safe check (avoid ${VAR:?msg} which breaks interpolation)
+        if [ -z "${APP_PATH:-}" ] || [ ! -d "${APP_PATH}" ]; then
+          echo "ERROR: APP_PATH missing after persistence"; exit 1
+        fi
+        curl -fsS "$API_BASE_URL/healthz" || echo "No /healthz (that's fine)"
 
-      # run tests
-      - export DEVICE_NAME="$DEVICE_NAME" API_BASE_URL="$API_BASE_URL" X_API_KEY="$X_API_KEY"
-      - npm run test:ci
+        # run tests
+        export DEVICE_NAME="$DEVICE_NAME" API_BASE_URL="$API_BASE_URL" X_API_KEY="$X_API_KEY"
+        npm run test:ci
 
-      # stop appium
-      - bash scripts/stop-appium.sh || { echo "Dumping appium.log due to stop failure"; tail -n +1 artifacts/appium.log || true; exit 1; }
+        # stop appium
+        bash scripts/stop-appium.sh || { echo "Dumping appium.log due to stop failure"; tail -n +1 artifacts/appium.log || true; exit 1; }
     artifact_paths:
       - "playwright-report/**"
       - "junit-report.xml"
@@ -89,10 +92,11 @@ steps:
   - wait
 
   - label: ":memo: Annotate JUnit"
-    agents: { queue: "default" }
+    agents:
+      queue: default
     plugins:
       - junit-annotate#v2.4.0:
           artifacts: "junit-report.xml"
           soft_fail: true
     commands:
-      - echo "Annotating JUnit results"
+      - "echo Annotating JUnit results"
