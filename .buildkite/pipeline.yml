@@ -38,7 +38,7 @@ steps:
       - unzip -oq artifacts/SimpleAPIAppanish.app.zip -d artifacts
       - echo "After unzip:" && ls -lah artifacts || true
 
-      # Robust .app detection with 'find' (FIXED)
+      # --- Robust .app detection + persist to step env ---
       - |
         set -euo pipefail
         echo "[debug] scanning for .app bundles under ./artifacts..."
@@ -56,7 +56,12 @@ steps:
         fi
 
         echo "Using APP_PATH=${APP_PATH}"
-        export APP_PATH
+
+        # Persist for subsequent commands in this step
+        if [ -z "${BUILDKITE_ENV_FILE:-}" ]; then
+          echo "ERROR: BUILDKITE_ENV_FILE is not set"; exit 1
+        fi
+        echo "APP_PATH=${APP_PATH}" >> "$BUILDKITE_ENV_FILE"
 
       # boot sim + start appium
       - bash scripts/sim-boot.sh "$DEVICE_NAME"
@@ -66,7 +71,8 @@ steps:
 
       # hosted API checks
       - echo "Using API_BASE_URL=$API_BASE_URL"
-      - env | sort | grep -E 'API_BASE_URL|DEVICE_NAME|X_API_KEY' || true
+      - env | sort | grep -E 'API_BASE_URL|DEVICE_NAME|X_API_KEY|APP_PATH' || true
+      - test -d "${APP_PATH:?APP_PATH not set after persistence}"
       - curl -fsS "$API_BASE_URL/healthz" || echo "No /healthz (that's fine)"
 
       # run tests
