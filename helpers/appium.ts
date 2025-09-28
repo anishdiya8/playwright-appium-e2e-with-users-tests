@@ -2,6 +2,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { remote, type RemoteOptions, type Browser } from 'webdriverio';
+import dotenv from 'dotenv';
+
+// Load .env early (optional DOTENV_PATH override)
+dotenv.config({ path: process.env.DOTENV_PATH || '.env' });
 
 export type IOSSessionOptions = {
   name: string;
@@ -46,9 +50,28 @@ export async function newIOSSession(opts: IOSSessionOptions): Promise<Browser<'a
   }
 
   const artifactsUdid = readSimUdidFromArtifacts(artifactsDir);
-  const deviceName = process.env.SIM_NAME ?? 'iPhone 15';
+  const deviceName = process.env.SIM_NAME ?? 'iPhone 16 Pro';
   const udid = process.env.SIM_UDID ?? artifactsUdid; // prefer explicit, fall back to file
   const port = Number(process.env.APPIUM_PORT ?? 4723);
+
+  // ---- NEW: Build the env that will be injected into the iOS app process
+  // Priority: process.env (from .env) < opts.env (per-test override)
+  const injectedEnv: Record<string, string> = {
+    // from .env / CI
+    ...(process.env.API_BASE_URL ? { API_BASE_URL: process.env.API_BASE_URL } : {}),
+    ...(process.env.X_API_KEY ? { X_API_KEY: process.env.X_API_KEY } : {}),
+    // any other useful context
+    ...(process.env.NODE_ENV ? { NODE_ENV: process.env.NODE_ENV } : { NODE_ENV: 'test' }),
+    // per-test overrides win
+    ...(opts.env ?? {})
+  };
+
+  // Log (with redaction) to make debugging easy
+  const redactedForLog = {
+    ...injectedEnv,
+    ...(injectedEnv.X_API_KEY ? { X_API_KEY: '***redacted***' } : {})
+  };
+  console.log(`[helpers/appium] Injecting env into app process:`, redactedForLog);
 
   const caps: RemoteOptions = {
     hostname: '127.0.0.1',
@@ -63,7 +86,8 @@ export async function newIOSSession(opts: IOSSessionOptions): Promise<Browser<'a
       ...(bundleId ? { 'appium:bundleId': bundleId } : { 'appium:app': appPath }),
       'appium:newCommandTimeout': 300,
       'appium:autoAcceptAlerts': true,
-      'appium:processArguments': { env: opts.env ?? {} },
+      // ---- CHANGED: actually pass env so the app can read ProcessInfo.processInfo.environment
+      'appium:processArguments': { env: injectedEnv },
       // stability tweaks
       'appium:waitForQuiescence': false,
       'appium:wdaStartupRetries': 2,
@@ -133,7 +157,7 @@ export async function savePng(
   return pngPath;
 }
 
-// ⬇️ NEW: dump the current page source to artifacts
+// ⬇️ dump the current page source to artifacts
 export async function saveSource(
   driver: Browser<'async'>,
   name: string,
