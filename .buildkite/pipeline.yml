@@ -38,18 +38,23 @@ steps:
       - unzip -oq artifacts/SimpleAPIAppanish.app.zip -d artifacts
       - echo "After unzip:" && ls -lah artifacts || true
 
-      # Robust .app detection with 'find' (fixes empty APP_PATH issue)
+      # Robust .app detection with 'find' (FIXED)
       - |
         set -euo pipefail
+        echo "[debug] scanning for .app bundles under ./artifacts..."
+        /usr/bin/find artifacts -maxdepth 2 -type d -name '*.app' -print || true
+
         APP_PATH="$(
           /usr/bin/find artifacts -maxdepth 2 -type d -name '*.app' -print | head -n 1
         )"
+
         if [ -z "${APP_PATH:-}" ] || [ ! -d "${APP_PATH}" ]; then
           echo "ERROR: APP_PATH not found"
           echo "Tree under ./artifacts for debugging:"
           /bin/ls -lR artifacts || true
           exit 1
         fi
+
         echo "Using APP_PATH=${APP_PATH}"
         export APP_PATH
 
