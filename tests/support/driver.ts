@@ -4,15 +4,15 @@ import { remote, type RemoteOptions } from 'webdriverio';
 function buildEnvForApp(): Record<string, string> {
   const env: Record<string, string> = {};
 
-  // Accept either name, prefer API_BASE_URL; set BOTH for the app
-  const base = (process.env.API_BASE_URL ?? process.env.API_URL ?? '').trim();
+  // 🔧 CHANGED: prefer API_URL if present, otherwise fall back to API_BASE_URL
+  const base = (process.env.API_URL ?? process.env.API_BASE_URL ?? '').trim(); // 🔧 CHANGED
   const key  = (process.env.X_API_KEY ?? '').trim();
 
   if (base) { env.API_BASE_URL = base; env.API_URL = base; }
   if (key)  { env.X_API_KEY = key; }
 
   // Fail fast so you see a clear error in CI instead of an empty table.
-  if (!env.API_URL)  throw new Error('Missing API_URL / API_BASE_URL (check .env or CI exports)');
+  if (!env.API_URL)   throw new Error('Missing API_URL / API_BASE_URL (check .env or CI exports)');
   if (!env.X_API_KEY) throw new Error('Missing X_API_KEY (check .env or CI exports)');
 
   // Helpful (redacted) log
