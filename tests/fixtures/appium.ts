@@ -4,63 +4,73 @@ import { createIosDriver } from '../support/driver';
 
 type Fixtures = { driver: WebdriverIO.Browser };
 
+function requireEnv(name: string, hint?: string) {
+  const v = process.env[name];
+  if (!v) throw new Error(`[fixtures/appium] Missing env: ${name}${hint ? ` (${hint})` : ''}`);
+  return v;
+}
+
 function buildCaps(): Record<string, any> {
-  const deviceName = process.env.DEVICE_NAME || 'iPhone 16 Pro';
+  const deviceName = requireEnv('DEVICE_NAME', 'set in pipeline');
+  const appPath    = requireEnv('IOS_APP_DIR', 'unzipped .app path from pipeline');
+  const udid       = process.env.SIM_UDID || process.env.BOOTED_UDID || '';
 
-  // Provide either app path (from pipeline) or bundleId (if you pre-installed it)
-  const appPath   = process.env.IOS_APP_DIR || process.env.APP_PATH || '';
-  const bundleId  = process.env.IOS_BUNDLE_ID || '';
+  const apiBaseUrl = requireEnv('API_BASE_URL', 'e.g. https://.../api');
+  const apiUrl     = process.env.API_URL || apiBaseUrl; // keep in sync but don’t fail if omitted
+  const xApiKey    = requireEnv('X_API_KEY', 'API key header value');
 
-  const apiBaseUrl = process.env.API_BASE_URL || '';
-  const xApiKey    = process.env.X_API_KEY || '';
-
-  const baseCaps: Record<string, any> = {
+  const caps: Record<string, any> = {
     platformName: 'iOS',
     'appium:automationName': 'XCUITest',
     'appium:deviceName': deviceName,
+    ...(udid ? { 'appium:udid': udid } : {}),
 
-    // Prefer explicit BOOTED_UDID if your pipeline exports it
-    ...(process.env.BOOTED_UDID ? { 'appium:udid': process.env.BOOTED_UDID } : {}),
+    // ⛔️ Do NOT set bundleId — always launch the .app so processArguments/env are applied
+    'appium:app': appPath,
 
-    // Launch via app path OR bundle id
-    ...(appPath ? { 'appium:app': appPath } : {}),
-    ...(bundleId ? { 'appium:bundleId': bundleId } : {}),
-
-    // 👇 Inject runtime config for the app
+    // Pass runtime config to the app process
     'appium:processArguments': {
-      // Launch arguments (available via UserDefaults / ProcessInfo.arguments)
-      args: [
-        '-API_BASE_URL', apiBaseUrl,
-        '-X_API_KEY',    xApiKey,
-      ],
-      // Environment variables visible to the app’s process
+      args: [], // keep empty unless your app *explicitly* reads launch args
       env: {
         API_BASE_URL: apiBaseUrl,
+        API_URL:      apiUrl,
         X_API_KEY:    xApiKey,
+        NODE_ENV:     'test',
       },
     },
 
-    // Helpful stability knobs
+    // Stability knobs
     'appium:newCommandTimeout': 300,
     'appium:waitForQuiescence': false,
     'appium:wdaStartupRetries': 2,
     'appium:wdaStartupRetryInterval': 2000,
+    'appium:wdaLaunchTimeout': 180000,
+    'appium:wdaConnectionTimeout': 180000,
+    'appium:showXcodeLog': true,
   };
 
-  if (!appPath && !bundleId) {
-    throw new Error(
-      '[fixtures/appium] Neither IOS_APP_DIR/APP_PATH nor IOS_BUNDLE_ID is set. ' +
-      'Set IOS_APP_DIR to your .app path (from the ZIP) or IOS_BUNDLE_ID if you preinstalled.'
-    );
-  }
-
-  return baseCaps;
+  return caps;
 }
 
 export const test = base.extend<Fixtures>({
   driver: async ({}, use, testInfo) => {
     const caps = buildCaps();
-    const driver = await createIosDriver(caps); // ← pass caps in
+
+    // Small debug surface in CI logs
+    console.log('[fixtures/appium] Launching with caps:', {
+      deviceName: caps['appium:deviceName'],
+      udid: caps['appium:udid'],
+      app: caps['appium:app'],
+      env: caps['appium:processArguments']?.env
+        ? {
+            API_BASE_URL: caps['appium:processArguments'].env.API_BASE_URL,
+            API_URL: caps['appium:processArguments'].env.API_URL,
+            X_API_KEY: '***redacted***',
+          }
+        : undefined,
+    });
+
+    const driver = await createIosDriver(caps);
     await driver.startRecordingScreen();
     try {
       await use(driver);
