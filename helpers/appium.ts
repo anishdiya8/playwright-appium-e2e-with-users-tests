@@ -1,7 +1,7 @@
 // helpers/appium.ts
 import fs from 'node:fs';
 import path from 'node:path';
-import { remote, type RemoteOptions, type Browser } from 'webdriverio';
+import { remote, type RemoteOptions } from 'webdriverio';
 import dotenv from 'dotenv';
 
 // Load .env early (optional DOTENV_PATH override)
@@ -31,7 +31,7 @@ function readSimUdidFromArtifacts(artifactsDir: string) {
   }
 }
 
-export async function newIOSSession(opts: IOSSessionOptions): Promise<Browser<'async'>> {
+export async function newIOSSession(opts: IOSSessionOptions): Promise<WebdriverIO.Browser> {
   const artifactsDir = opts.artifactsDir ?? path.resolve('artifacts');
   ensureDir(artifactsDir);
 
@@ -54,24 +54,23 @@ export async function newIOSSession(opts: IOSSessionOptions): Promise<Browser<'a
   const udid = process.env.SIM_UDID ?? artifactsUdid; // prefer explicit, fall back to file
   const port = Number(process.env.APPIUM_PORT ?? 4723);
 
-  // ---- NEW: Build the env that will be injected into the iOS app process
-  // Priority: process.env (from .env) < opts.env (per-test override)
-  const injectedEnv: Record<string, string> = {
-    // from .env / CI
-    ...(process.env.API_BASE_URL ? { API_BASE_URL: process.env.API_BASE_URL } : {}),
-    ...(process.env.X_API_KEY ? { X_API_KEY: process.env.X_API_KEY } : {}),
-    // any other useful context
-    ...(process.env.NODE_ENV ? { NODE_ENV: process.env.NODE_ENV } : { NODE_ENV: 'test' }),
-    // per-test overrides win
+  // ======================================================
+  // Env that will be injected into the iOS app process
+  // (your requested approach)
+  // ======================================================
+  const base = (process.env.API_BASE_URL ?? process.env.API_URL ?? '').trim(); // <<< CHANGED
+  const envForApp = {                                                            // <<< CHANGED
+    API_BASE_URL: base,
+    API_URL: base,              // <-- ✨ NEW/IMPORTANT
+    X_API_KEY: (process.env.X_API_KEY ?? '').trim(),
+    NODE_ENV: process.env.NODE_ENV ?? 'test',
+    // allow per-test overrides to win
     ...(opts.env ?? {})
   };
 
-  // Log (with redaction) to make debugging easy
-  const redactedForLog = {
-    ...injectedEnv,
-    ...(injectedEnv.X_API_KEY ? { X_API_KEY: '***redacted***' } : {})
-  };
-  console.log(`[helpers/appium] Injecting env into app process:`, redactedForLog);
+  // Helpful redacted log
+  const redacted = { ...envForApp, X_API_KEY: envForApp.X_API_KEY ? '***redacted***' : '' }; // <<< CHANGED
+  console.log('[helpers/appium] processArguments.env =', redacted);                           // <<< CHANGED
 
   const caps: RemoteOptions = {
     hostname: '127.0.0.1',
@@ -86,8 +85,8 @@ export async function newIOSSession(opts: IOSSessionOptions): Promise<Browser<'a
       ...(bundleId ? { 'appium:bundleId': bundleId } : { 'appium:app': appPath }),
       'appium:newCommandTimeout': 300,
       'appium:autoAcceptAlerts': true,
-      // ---- CHANGED: actually pass env so the app can read ProcessInfo.processInfo.environment
-      'appium:processArguments': { env: injectedEnv },
+      // <<< CHANGED: explicitly include args: [] and your env object
+      'appium:processArguments': { args: [], env: envForApp },
       // stability tweaks
       'appium:waitForQuiescence': false,
       'appium:wdaStartupRetries': 2,
@@ -123,7 +122,7 @@ export async function newIOSSession(opts: IOSSessionOptions): Promise<Browser<'a
 }
 
 export async function endIOSSession(
-  driver: Browser<'async'>,
+  driver: WebdriverIO.Browser,
   testName: string,
   artifactsDir = 'artifacts'
 ) {
@@ -140,7 +139,7 @@ export async function endIOSSession(
 }
 
 export async function savePng(
-  driver: Browser<'async'>,
+  driver: WebdriverIO.Browser,
   name: string,
   artifactsDir = 'artifacts'
 ) {
@@ -159,7 +158,7 @@ export async function savePng(
 
 // ⬇️ dump the current page source to artifacts
 export async function saveSource(
-  driver: Browser<'async'>,
+  driver: WebdriverIO.Browser,
   name: string,
   artifactsDir = 'artifacts'
 ) {
