@@ -146,9 +146,9 @@ steps:
         echo "ERROR: IOS_APP_DIR missing/invalid: $$IOS_APP_DIR"; exit 1
       fi
 
-      # --- NEW: ensure envs + probe API from CI host ---
-      : "${API_BASE_URL:?Missing API_BASE_URL}"
-      : "${X_API_KEY:?Missing X_API_KEY}"
+      # --- ensure envs + probe API from CI host ---
+      : "$${API_BASE_URL:?Missing API_BASE_URL}"
+      : "$${X_API_KEY:?Missing X_API_KEY}"
 
       echo "[probe] Curling API from the CI host with X-API-KEY"
       set -x
