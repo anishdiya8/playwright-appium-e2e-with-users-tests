@@ -1,6 +1,9 @@
 env:
   DEVICE_NAME: "iPhone 16 Pro"
+  # IMPORTANT: include /api here
   API_BASE_URL: "https://sdbnrxt339.execute-api.ap-southeast-2.amazonaws.com/api"
+  # App reads API_URL — keep it in sync with API_BASE_URL
+  API_URL: "https://sdbnrxt339.execute-api.ap-southeast-2.amazonaws.com/api"
   X_API_KEY: "demo-key-123"
   APP_ZIP_URL: "https://ios-ci-artifacts-bucket-anish.s3.ap-southeast-2.amazonaws.com/ios/SimpleAPIAppanish.app.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAUHVSWCJQTPALQ4XL%2F20250927%2Fap-southeast-2%2Fs3%2Faws4_request&X-Amz-Date=20250927T224608Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=ab10be1924c4bf5304dbedc9f8aedf186b46557f39dec24865d638fdf8accc6e"
 
@@ -54,12 +57,12 @@ steps:
         rm -rf artifacts/SimpleAPIAppanish.app 2>/dev/null || true
         mv -f "SimpleAPIAppanish.app" "artifacts/"
         APP_PATH="artifacts/SimpleAPIAppanish.app"
-      # 3) Last resort: search, prefer artifacts/, then repo root (excluding node_modules)
+      # 3) Last resort: search
       else
         APP_PATH="$(
           /usr/bin/find artifacts -type d -name '*.app' -print | head -n1
         )"
-        if [ -z "$${APP_PATH:-}" ]; then
+        if [ -z "${APP_PATH:-}" ]; then
           APP_PATH="$(
             /usr/bin/find . -type d -name '*.app' -print | grep -vE '^./node_modules/' | head -n1
           )"
@@ -67,12 +70,12 @@ steps:
       fi
 
       # Canonicalize to an absolute path for safety
-      if [ -n "$${APP_PATH:-}" ]; then
-        APP_PATH="$(cd "$(dirname "$$APP_PATH")" && pwd)/$(basename "$$APP_PATH")"
+      if [ -n "${APP_PATH:-}" ]; then
+        APP_PATH="$(cd "$(dirname "$APP_PATH")" && pwd)/$(basename "$APP_PATH")"
       fi
 
       # Final sanity
-      if [ -z "$${APP_PATH:-}" ] || [ ! -d "$$APP_PATH" ]; then
+      if [ -z "${APP_PATH:-}" ] || [ ! -d "$APP_PATH" ]; then
         echo "ERROR: APP_PATH not found (expected an .app bundle, ideally artifacts/SimpleAPIAppanish.app)."
         echo "--- pwd ---"; pwd
         echo "--- ls -l artifacts ---"; ls -l artifacts || true
@@ -80,89 +83,97 @@ steps:
         exit 1
       fi
 
-      echo "Using APP_PATH=$$APP_PATH"
-      /bin/ls -ld "$$APP_PATH" || true
+      echo "Using APP_PATH=$APP_PATH"
+      /bin/ls -ld "$APP_PATH" || true
 
       # Persist + export for this step
-      if [ -z "$${BUILDKITE_ENV_FILE:-}" ]; then
+      if [ -z "${BUILDKITE_ENV_FILE:-}" ]; then
         echo "ERROR: BUILDKITE_ENV_FILE is not set"; exit 1
       fi
       {
-        echo "APP_PATH=$$APP_PATH"
-        echo "IOS_APP_DIR=$$APP_PATH"
-      } >> "$$BUILDKITE_ENV_FILE"
-      export IOS_APP_DIR="$$APP_PATH"
+        echo "APP_PATH=$APP_PATH"
+        echo "IOS_APP_DIR=$APP_PATH"
+      } >> "$BUILDKITE_ENV_FILE"
+      export IOS_APP_DIR="$APP_PATH"
 
       # Clean up any strays (avoid multiple sims)
       xcrun simctl shutdown all || true
       rm -f artifacts/sim-udid.txt || true
 
       # Boot ONE simulator and capture its UDID
-      bash scripts/sim-boot.sh "$$DEVICE_NAME"
-      export SIM_NAME="$$DEVICE_NAME"
+      bash scripts/sim-boot.sh "$DEVICE_NAME"
+      export SIM_NAME="$DEVICE_NAME"
 
       BOOTED_UDID="$(cat artifacts/sim-udid.txt 2>/dev/null || true)"
-      if [ -z "$${BOOTED_UDID:-}" ]; then
+      if [ -z "${BOOTED_UDID:-}" ]; then
         BOOTED_UDID="$(xcrun simctl list devices booted | sed -n 's/.*(\([A-F0-9-]\{36\}\)).*/\1/p' | head -n1 || true)"
       fi
-      echo "Booted UDID: $${BOOTED_UDID:-unknown}"
-      if [ -z "$${BOOTED_UDID:-}" ]; then
+      echo "Booted UDID: ${BOOTED_UDID:-unknown}"
+      if [ -z "${BOOTED_UDID:-}" ]; then
         echo "ERROR: No booted simulator UDID found"; exit 1
       fi
 
       {
-        echo "SIM_UDID=$$BOOTED_UDID"
-        echo "BOOTED_UDID=$$BOOTED_UDID"
-      } >> "$$BUILDKITE_ENV_FILE"
-      export SIM_UDID="$$BOOTED_UDID"
-      export BOOTED_UDID="$$BOOTED_UDID"
+        echo "SIM_UDID=$BOOTED_UDID"
+        echo "BOOTED_UDID=$BOOTED_UDID"
+      } >> "$BUILDKITE_ENV_FILE"
+      export SIM_UDID="$BOOTED_UDID"
+      export BOOTED_UDID="$BOOTED_UDID"
 
       # Optional: read bundle id & pre-install
-      if [ -f "$$IOS_APP_DIR/Info.plist" ]; then
-        IOS_BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$$IOS_APP_DIR/Info.plist" 2>/dev/null || true)"
-        if [ -n "$${IOS_BUNDLE_ID:-}" ]; then
-          echo "[install] xcrun simctl install $$BOOTED_UDID $$IOS_APP_DIR"
-          xcrun simctl install "$$BOOTED_UDID" "$$IOS_APP_DIR" || true
-          echo "IOS_BUNDLE_ID=$$IOS_BUNDLE_ID" >> "$$BUILDKITE_ENV_FILE"
-          export IOS_BUNDLE_ID="$$IOS_BUNDLE_ID"
+      if [ -f "$IOS_APP_DIR/Info.plist" ]; then
+        IOS_BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$IOS_APP_DIR/Info.plist" 2>/dev/null || true)"
+        if [ -n "${IOS_BUNDLE_ID:-}" ]; then
+          echo "[install] xcrun simctl install $BOOTED_UDID $IOS_APP_DIR"
+          xcrun simctl install "$BOOTED_UDID" "$IOS_APP_DIR" || true
+          echo "IOS_BUNDLE_ID=$IOS_BUNDLE_ID" >> "$BUILDKITE_ENV_FILE"
+          export IOS_BUNDLE_ID="$IOS_BUNDLE_ID"
         fi
       fi
 
-      # ---- Inject env into the Simulator (no app code changes) ----
-      echo "[sim-env] Injecting API_BASE_URL and X_API_KEY into simulator launchd env"
-      xcrun simctl spawn "$$BOOTED_UDID" launchctl setenv API_BASE_URL "$$API_BASE_URL"
-      xcrun simctl spawn "$$BOOTED_UDID" launchctl setenv X_API_KEY "$$X_API_KEY"
+      # ---- Inject env into the Simulator (covers any system lookups) ----
+      echo "[sim-env] Injecting API_BASE_URL, API_URL and X_API_KEY into simulator launchd env"
+      xcrun simctl spawn "$BOOTED_UDID" launchctl setenv API_BASE_URL "$API_BASE_URL"
+      xcrun simctl spawn "$BOOTED_UDID" launchctl setenv API_URL "$API_URL"
+      xcrun simctl spawn "$BOOTED_UDID" launchctl setenv X_API_KEY "$X_API_KEY"
       echo "[sim-env] Verifying injected vars:"
-      xcrun simctl spawn "$$BOOTED_UDID" printenv | grep -E '^API_BASE_URL=|^X_API_KEY=' | sed -E 's/(X_API_KEY=).*/\1***redacted***/' || true
+      xcrun simctl spawn "$BOOTED_UDID" printenv | grep -E '^(API_BASE_URL|API_URL|X_API_KEY)=' | sed -E 's/(X_API_KEY=).*/\1***redacted***/' || true
 
       # Start Appium (should not boot another sim)
       bash scripts/start-appium.sh
       bash scripts/wait-on-http.sh http://127.0.0.1:4723/status 45
 
       # hosted API checks
-      echo "Using API_BASE_URL=$$API_BASE_URL"
-      env | sort | grep -E 'API_BASE_URL|DEVICE_NAME|X_API_KEY|APP_PATH|IOS_APP_DIR|IOS_BUNDLE_ID|BOOTED_UDID' || true
-      if [ -z "$$IOS_APP_DIR" ] || [ ! -d "$$IOS_APP_DIR" ]; then
-        echo "ERROR: IOS_APP_DIR missing/invalid: $$IOS_APP_DIR"; exit 1
+      echo "Using API_BASE_URL=$API_BASE_URL"
+      env | sort | grep -E 'API_BASE_URL|API_URL|DEVICE_NAME|X_API_KEY|APP_PATH|IOS_APP_DIR|IOS_BUNDLE_ID|BOOTED_UDID' || true
+      if [ -z "$IOS_APP_DIR" ] || [ ! -d "$IOS_APP_DIR" ]; then
+        echo "ERROR: IOS_APP_DIR missing/invalid: $IOS_APP_DIR"; exit 1
       fi
 
       # --- ensure envs + probe API from CI host ---
-      : "$${API_BASE_URL:?Missing API_BASE_URL}"
-      : "$${X_API_KEY:?Missing X_API_KEY}"
+      : "${API_BASE_URL:?Missing API_BASE_URL}"
+      : "${API_URL:?Missing API_URL}"
+      : "${X_API_KEY:?Missing X_API_KEY}"
 
       # If API_BASE_URL ends with /api, derive the origin for /healthz
-      ORIGIN="$${API_BASE_URL%/api}"
+      ORIGIN="${API_BASE_URL%/api}"
 
       echo "[probe] Curling API from the CI host with X-API-KEY"
       set -x
       # healthz is on the origin (not under /api)
-      curl -iS "$$ORIGIN/healthz" || true
-      # users is under /api now that API_BASE_URL includes /api
-      curl -iS -H "x-api-key: $$X_API_KEY" "$$API_BASE_URL/users?page=2" || true
+      curl -iS "$ORIGIN/healthz" || true
+      # users is under /api
+      curl -iS -H "x-api-key: $X_API_KEY" "$API_BASE_URL/users?page=2" || true
       set +x
 
-      # run tests
-      export DEVICE_NAME="$$DEVICE_NAME" API_BASE_URL="$$API_BASE_URL" X_API_KEY="$$X_API_KEY" IOS_APP_DIR="$$IOS_APP_DIR" IOS_BUNDLE_ID="$${IOS_BUNDLE_ID:-}"
+      # run tests — export both names so your test helper passes both to processArguments.env
+      export DEVICE_NAME="$DEVICE_NAME" \
+             API_BASE_URL="$API_BASE_URL" \
+             API_URL="$API_URL" \
+             X_API_KEY="$X_API_KEY" \
+             IOS_APP_DIR="$IOS_APP_DIR" \
+             IOS_BUNDLE_ID="${IOS_BUNDLE_ID:-}"
+
       npm run test:ci
 
       # stop appium
