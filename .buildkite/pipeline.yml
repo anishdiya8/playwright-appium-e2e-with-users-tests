@@ -43,24 +43,39 @@ steps:
       unzip -oq artifacts/SimpleAPIAppanish.app.zip -d artifacts
       echo "After unzip:" && ls -lah artifacts || true
 
-      # ---- Robust .app detection (BSD find safe) ----
+      # ---- Robust .app detection (explicit paths first, then find) ----
       echo "[debug] scanning for .app bundles under ./artifacts and ."
       /usr/bin/find artifacts . -type d -name '*.app' -print || true
 
-      APP_PATH="$(/usr/bin/find artifacts -type d -name '*.app' | head -n 1 || true)"
-      if [ -z "${APP_PATH:-}" ]; then
-        APP_PATH="$(
-          /usr/bin/find . -type d -name '*.app' | grep -vE '^./node_modules/' | head -n 1 || true
-        )"
+      APP_PATH=""
+      if [ -d "artifacts/SimpleAPIAppanish.app" ]; then
+        APP_PATH="artifacts/SimpleAPIAppanish.app"
+      elif [ -d "SimpleAPIAppanish.app" ]; then
+        # normalize to artifacts/ to avoid relative path surprises
+        mv -f "SimpleAPIAppanish.app" "artifacts/" || true
+        APP_PATH="artifacts/SimpleAPIAppanish.app"
+      else
+        # fallback search (BSD find safe)
+        APP_PATH="$(/usr/bin/find artifacts -type d -name '*.app' | head -n 1 || true)"
+        if [ -z "${APP_PATH:-}" ]; then
+          APP_PATH="$(/usr/bin/find . -type d -name '*.app' | grep -vE '^./node_modules/' | head -n 1 || true)"
+        fi
+      fi
+
+      # canonicalize + final sanity
+      if [ -n "${APP_PATH:-}" ]; then
+        APP_PATH="$(cd "$(dirname "$APP_PATH")" && pwd)/$(basename "$APP_PATH")"
       fi
 
       if [ -z "${APP_PATH:-}" ] || [ ! -d "$APP_PATH" ]; then
-        echo "ERROR: APP_PATH not found"
+        echo "ERROR: APP_PATH not found (expected an .app bundle under ./artifacts)."
+        echo "--- ls -lR artifacts ---"
         /bin/ls -lR artifacts || true
         exit 1
       fi
 
       echo "Using APP_PATH=$APP_PATH"
+      /bin/ls -ld "$APP_PATH" || true
 
       # Persist + export for this step
       if [ -z "${BUILDKITE_ENV_FILE:-}" ]; then
