@@ -143,6 +143,26 @@ steps:
       export SIM_UDID="$$BOOTED_UDID"
       export BOOTED_UDID="$$BOOTED_UDID"
 
+      # ----------------- ADDED: erase & re-boot the exact device to free space -----------------
+      echo "[sim-clean] Resetting booted device to free space"
+      xcrun simctl shutdown "$$BOOTED_UDID" || true
+      xcrun simctl erase "$$BOOTED_UDID" || true
+
+      # Re-boot the same device name to get a fresh UDID file again
+      bash scripts/sim-boot.sh "$$DEVICE_NAME"
+
+      # Refresh BOOTED_UDID after the re-boot
+      BOOTED_UDID="$(cat artifacts/sim-udid.txt 2>/dev/null || true)"
+      if [ -z "$${BOOTED_UDID:-}" ]; then
+        BOOTED_UDID="$(xcrun simctl list devices booted | sed -n 's/.*(\([A-F0-9-]\{36\}\)).*/\1/p' | head -n1 || true)"
+      fi
+      echo "Booted UDID (fresh): $${BOOTED_UDID:-unknown}"
+      [ -z "$${BOOTED_UDID:-}" ] && { echo "ERROR: No booted simulator UDID after reset"; exit 1; }
+
+      # Optional: remove any previously installed bundle (harmless if missing)
+      xcrun simctl uninstall "$$BOOTED_UDID" com.anishmathew.SimpleAPIApp.SimpleAPIAppanish.dev123 || true
+      # ---------------------------------------------------------------------
+
       # Optional: read bundle id & pre-install
       if [ -f "$$IOS_APP_DIR/Info.plist" ]; then
         IOS_BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$$IOS_APP_DIR/Info.plist" 2>/dev/null || true)"
