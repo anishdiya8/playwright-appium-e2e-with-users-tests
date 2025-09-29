@@ -83,12 +83,16 @@ export async function newIOSSession(opts: IOSSessionOptions): Promise<WebdriverI
       'appium:deviceName': deviceName,
       ...(udid ? { 'appium:udid': udid } : {}),
       ...(bundleId ? { 'appium:bundleId': bundleId } : { 'appium:app': appPath }),
+      'appium:app': process.env.IOS_APP_DIR, 
       'appium:newCommandTimeout': 300,
       'appium:autoAcceptAlerts': true,
       // <<< CHANGED: explicitly include args: [] and your env object
       'appium:processArguments': { args: [], env: envForApp },
       // stability tweaks
       'appium:waitForQuiescence': false,
+      'appium:showXcodeLog': true,
+      'appium:wdaLaunchTimeout': 180000,
+      'appium:wdaConnectionTimeout': 180000,
       'appium:wdaStartupRetries': 2,
       'appium:wdaStartupRetryInterval': 2000
     }
