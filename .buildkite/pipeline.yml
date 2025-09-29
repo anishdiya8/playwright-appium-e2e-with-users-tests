@@ -143,7 +143,7 @@ steps:
       export SIM_UDID="$$BOOTED_UDID"
       export BOOTED_UDID="$$BOOTED_UDID"
 
-      # ----------------- ADDED: erase & re-boot the exact device to free space -----------------
+      # ----------------- erase & re-boot the exact device to free space -----------------
       echo "[sim-clean] Resetting booted device to free space"
       xcrun simctl shutdown "$$BOOTED_UDID" || true
       xcrun simctl erase "$$BOOTED_UDID" || true
@@ -163,14 +163,12 @@ steps:
       xcrun simctl uninstall "$$BOOTED_UDID" com.anishmathew.SimpleAPIApp.SimpleAPIAppanish.dev123 || true
       # ---------------------------------------------------------------------
 
-      # Optional: read bundle id & pre-install
+      # Optional: read bundle id & pre-install (do NOT export/persist IOS_BUNDLE_ID)
       if [ -f "$$IOS_APP_DIR/Info.plist" ]; then
         IOS_BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$$IOS_APP_DIR/Info.plist" 2>/dev/null || true)"
         if [ -n "$${IOS_BUNDLE_ID:-}" ]; then
           echo "[install] xcrun simctl install $$BOOTED_UDID $$IOS_APP_DIR"
           xcrun simctl install "$$BOOTED_UDID" "$$IOS_APP_DIR" || true
-          echo "IOS_BUNDLE_ID=$$IOS_BUNDLE_ID" >> "$$BUILDKITE_ENV_FILE"
-          export IOS_BUNDLE_ID="$$IOS_BUNDLE_ID"
         fi
       fi
 
@@ -209,13 +207,15 @@ steps:
       curl -iS -H "x-api-key: $$X_API_KEY" "$$API_BASE_URL/users?page=2" || true
       set +x
 
-      # run tests — export both names so your test helper passes both to processArguments.env
+      # run tests — export env only; force app-path launch (not bundleId)
       export DEVICE_NAME="$$DEVICE_NAME" \
              API_BASE_URL="$$API_BASE_URL" \
              API_URL="$$API_URL" \
              X_API_KEY="$$X_API_KEY" \
-             IOS_APP_DIR="$$IOS_APP_DIR" \
-             IOS_BUNDLE_ID="$${IOS_BUNDLE_ID:-}"
+             IOS_APP_DIR="$$IOS_APP_DIR"
+
+      unset IOS_BUNDLE_ID
+      echo "IOS_BUNDLE_ID=" >> "$$BUILDKITE_ENV_FILE"
 
       npm run test:ci
 
