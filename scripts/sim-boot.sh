@@ -1,131 +1,36 @@
-env:
-  DEVICE_NAME: "iPhone 16 Pro"
-  API_BASE_URL: "https://sdbnrxt339.execute-api.ap-southeast-2.amazonaws.com"
-  X_API_KEY: "demo-key-123"
-  APP_ZIP_URL: "https://ios-ci-artifacts-bucket-anish.s3.ap-southeast-2.amazonaws.com/ios/SimpleAPIAppanish.app.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAUHVSWCJQTPALQ4XL%2F20250927%2Fap-southeast-2%2Fs3%2Faws4_request&X-Amz-Date=20250927T224608Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=ab10be1924c4bf5304dbedc9f8aedf186b46557f39dec24865d638fdf8accc6e"
+#!/usr/bin/env bash
+# scripts/sim-boot.sh
+set -euo pipefail
 
-steps:
-  - label: ":package: Download prebuilt iOS app"
-    key: build-app
-    agents: { queue: default }
-    commands:
-      - set -euo pipefail
-      - mkdir -p artifacts
-      - echo "Downloading app zip"
-      - curl -fL "$APP_ZIP_URL" -o artifacts/SimpleAPIAppanish.app.zip
-      - du -h artifacts/SimpleAPIAppanish.app.zip || true
-      - buildkite-agent artifact upload artifacts/SimpleAPIAppanish.app.zip
+DEVICE_NAME="${1:-${DEVICE_NAME:-iPhone 16 Pro}}"
+ARTIFACTS_DIR="${2:-artifacts}"
 
-  - wait
+mkdir -p "$ARTIFACTS_DIR"
 
-  - label: ":test_tube: E2E (Playwright + Appium)"
-    key: e2e
-    agents: { queue: default }
-    concurrency: 1
-    concurrency_group: ios-simulator
-    timeout_in_minutes: 60
-    commands: |
-      set -euo pipefail
+echo "[sim-boot] Shutting down any running simulators…"
+xcrun simctl shutdown all || true
+# make sure the UI app isn't holding on to a booted device
+killall -9 Simulator >/dev/null 2>&1 || true
 
-      # deps
-      node --version && npm --version
-      npm ci
+# Find an available device UDID that matches the name
+UDID="$(xcrun simctl list devices available | awk -v n="$DEVICE_NAME" -F'[()]' '
+  $0 ~ n && $0 !~ /unavailable|unavailable,/ {print $2; exit}')"
 
-      # bring app artifact into workspace
-      buildkite-agent artifact download "artifacts/SimpleAPIAppanish.app.zip" .
-      echo "Before unzip:" && ls -lah artifacts || true
-      du -h artifacts/SimpleAPIAppanish.app.zip || true
-      unzip -oq artifacts/SimpleAPIAppanish.app.zip -d artifacts
-      echo "After unzip:" && ls -lah artifacts || true
+if [ -z "${UDID:-}" ]; then
+  echo "[sim-boot] ERROR: No available simulator matching: $DEVICE_NAME"
+  echo "[sim-boot] Available devices:"
+  xcrun simctl list devices available
+  exit 1
+fi
 
-      # ---- .app detection (artifacts/ only) ----
-      echo "[debug] scanning for .app bundles under ./artifacts..."
-      /usr/bin/find artifacts -maxdepth 3 -type d -name '*.app' -print || true
-      APP_PATH="$(/usr/bin/find artifacts -maxdepth 3 -type d -name '*.app' -print | head -n 1)"
+echo "[sim-boot] Booting $DEVICE_NAME ($UDID)…"
+xcrun simctl boot "$UDID" || true
 
-      if [ -z "${APP_PATH:-}" ] || [ ! -d "$APP_PATH" ]; then
-        echo "ERROR: APP_PATH not found"
-        /bin/ls -lR artifacts || true
-        exit 1
-      fi
+# Bring up the Simulator app on the chosen UDID
+open -a Simulator --args -CurrentDeviceUDID "$UDID" || true
 
-      echo "Using APP_PATH=$APP_PATH"
+echo "[sim-boot] Waiting for boot to complete…"
+xcrun simctl bootstatus "$UDID" -b
 
-      # Persist + export for this step
-      if [ -z "${BUILDKITE_ENV_FILE:-}" ]; then
-        echo "ERROR: BUILDKITE_ENV_FILE is not set"; exit 1
-      fi
-      {
-        echo "APP_PATH=$APP_PATH"
-        echo "IOS_APP_DIR=$APP_PATH"
-      } >> "$BUILDKITE_ENV_FILE"
-      export IOS_APP_DIR="$APP_PATH"
-
-      # Boot ONE simulator and capture its UDID
-      bash scripts/sim-boot.sh "$DEVICE_NAME"
-      export SIM_NAME="$DEVICE_NAME"
-      BOOTED_UDID="$(cat artifacts/sim-udid.txt 2>/dev/null || true)"
-      if [ -z "${BOOTED_UDID:-}" ]; then
-        BOOTED_UDID="$(xcrun simctl list devices booted | sed -n 's/.*(\([A-F0-9-]\{36\}\)).*/\1/p' | head -n1 || true)"
-      fi
-      echo "Booted UDID: ${BOOTED_UDID:-unknown}"
-      if [ -z "${BOOTED_UDID:-}" ]; then
-        echo "ERROR: No booted simulator UDID found"; exit 1
-      fi
-      {
-        echo "SIM_UDID=$BOOTED_UDID"
-        echo "BOOTED_UDID=$BOOTED_UDID"
-      } >> "$BUILDKITE_ENV_FILE"
-      export SIM_UDID="$BOOTED_UDID"
-      export BOOTED_UDID="$BOOTED_UDID"
-
-      # Optional: read bundle id & pre-install
-      if [ -f "$IOS_APP_DIR/Info.plist" ]; then
-        IOS_BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$IOS_APP_DIR/Info.plist" 2>/dev/null || true)"
-        if [ -n "${IOS_BUNDLE_ID:-}" ]; then
-          echo "[install] xcrun simctl install $BOOTED_UDID $IOS_APP_DIR"
-          xcrun simctl install "$BOOTED_UDID" "$IOS_APP_DIR" || true
-          echo "IOS_BUNDLE_ID=$IOS_BUNDLE_ID" >> "$BUILDKITE_ENV_FILE"
-          export IOS_BUNDLE_ID="$IOS_BUNDLE_ID"
-        fi
-      fi
-
-      # ---- Inject env into the Simulator (no app code changes) ----
-      echo "[sim-env] Injecting API_BASE_URL and X_API_KEY into simulator launchd env"
-      xcrun simctl spawn "$BOOTED_UDID" launchctl setenv API_BASE_URL "$API_BASE_URL"
-      xcrun simctl spawn "$BOOTED_UDID" launchctl setenv X_API_KEY "$X_API_KEY"
-      echo "[sim-env] Verifying injected vars:"
-      xcrun simctl spawn "$BOOTED_UDID" printenv | grep -E '^API_BASE_URL=|^X_API_KEY=' | sed -E 's/(X_API_KEY=).*/\1***redacted***/' || true
-
-      # Start Appium (should not boot another sim)
-      bash scripts/start-appium.sh
-      bash scripts/wait-on-http.sh http://127.0.0.1:4723/status 45
-
-      # hosted API checks
-      echo "Using API_BASE_URL=$API_BASE_URL"
-      env | sort | grep -E 'API_BASE_URL|DEVICE_NAME|X_API_KEY|APP_PATH|IOS_APP_DIR|IOS_BUNDLE_ID|BOOTED_UDID' || true
-      if [ -z "$IOS_APP_DIR" ] || [ ! -d "$IOS_APP_DIR" ]; then
-        echo "ERROR: IOS_APP_DIR missing/invalid: $IOS_APP_DIR"; exit 1
-      fi
-      curl -fsS "$API_BASE_URL/healthz" || echo "No /healthz (that's fine)"
-
-      # run tests
-      export DEVICE_NAME="$DEVICE_NAME" API_BASE_URL="$API_BASE_URL" X_API_KEY="$X_API_KEY" IOS_APP_DIR="$IOS_APP_DIR" IOS_BUNDLE_ID="${IOS_BUNDLE_ID:-}"
-      npm run test:ci
-
-      # stop appium
-      bash scripts/stop-appium.sh || { echo "Dumping appium.log due to stop failure"; tail -n +1 artifacts/appium.log || true; exit 1; }
-    artifact_paths:
-      - "playwright-report/**"
-      - "junit-report.xml"
-      - "artifacts/**"
-
-  - wait
-
-  - label: ":memo: Annotate JUnit"
-    agents: { queue: default }
-    plugins:
-      - junit-annotate#v2.4.0:
-          artifacts: "junit-report.xml"
-          soft_fail: true
-    commands: "echo Annotating JUnit results"
+echo "$UDID" > "$ARTIFACTS_DIR/sim-udid.txt"
+echo "[sim-boot] Simulator ready: $DEVICE_NAME ($UDID)"
