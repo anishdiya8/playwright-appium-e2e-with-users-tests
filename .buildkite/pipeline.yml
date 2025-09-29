@@ -1,6 +1,6 @@
 env:
   DEVICE_NAME: "iPhone 16 Pro"
-  API_BASE_URL: "https://sdbnrxt339.execute-api.ap-southeast-2.amazonaws.com"
+  API_BASE_URL: "https://sdbnrxt339.execute-api.ap-southeast-2.amazonaws.com/api"
   X_API_KEY: "demo-key-123"
   APP_ZIP_URL: "https://ios-ci-artifacts-bucket-anish.s3.ap-southeast-2.amazonaws.com/ios/SimpleAPIAppanish.app.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAUHVSWCJQTPALQ4XL%2F20250927%2Fap-southeast-2%2Fs3%2Faws4_request&X-Amz-Date=20250927T224608Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=ab10be1924c4bf5304dbedc9f8aedf186b46557f39dec24865d638fdf8accc6e"
 
@@ -150,10 +150,15 @@ steps:
       : "$${API_BASE_URL:?Missing API_BASE_URL}"
       : "$${X_API_KEY:?Missing X_API_KEY}"
 
+      # If API_BASE_URL ends with /api, derive the origin for /healthz
+      ORIGIN="$${API_BASE_URL%/api}"
+
       echo "[probe] Curling API from the CI host with X-API-KEY"
       set -x
-      curl -iS "$$API_BASE_URL/healthz" || true
-      curl -iS -H "x-api-key: $$X_API_KEY" "$$API_BASE_URL/users" || true
+      # healthz is on the origin (not under /api)
+      curl -iS "$$ORIGIN/healthz" || true
+      # users is under /api now that API_BASE_URL includes /api
+      curl -iS -H "x-api-key: $$X_API_KEY" "$$API_BASE_URL/users?page=2" || true
       set +x
 
       # run tests
