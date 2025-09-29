@@ -30,6 +30,7 @@ steps:
       # deps
       node --version && npm --version
       npm ci
+
       # ensure scripts are executable before calling them
       chmod +x scripts/*.sh
 
@@ -42,13 +43,15 @@ steps:
       unzip -oq artifacts/SimpleAPIAppanish.app.zip -d artifacts
       echo "After unzip:" && ls -lah artifacts || true
 
-      # ---- Robust .app detection ----
+      # ---- Robust .app detection (BSD find safe) ----
       echo "[debug] scanning for .app bundles under ./artifacts and ."
-      /usr/bin/find artifacts . -maxdepth 3 -type d -name '*.app' -print || true
+      /usr/bin/find artifacts . -type d -name '*.app' -print || true
 
-      APP_PATH="$(/usr/bin/find artifacts -maxdepth 3 -type d -name '*.app' -print -quit)"
+      APP_PATH="$(/usr/bin/find artifacts -type d -name '*.app' | head -n 1 || true)"
       if [ -z "${APP_PATH:-}" ]; then
-        APP_PATH="$(/usr/bin/find . -maxdepth 2 -type d -name '*.app' -print -quit)"
+        APP_PATH="$(
+          /usr/bin/find . -type d -name '*.app' | grep -vE '^./node_modules/' | head -n 1 || true
+        )"
       fi
 
       if [ -z "${APP_PATH:-}" ] || [ ! -d "$APP_PATH" ]; then
