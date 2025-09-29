@@ -4,18 +4,23 @@ import { remote, type RemoteOptions } from 'webdriverio';
 function buildEnvForApp(): Record<string, string> {
   const env: Record<string, string> = {};
 
-  // 🔧 CHANGED: prefer API_URL if present, otherwise fall back to API_BASE_URL
-  const base = (process.env.API_URL ?? process.env.API_BASE_URL ?? '').trim(); // 🔧 CHANGED
-  const key  = (process.env.X_API_KEY ?? '').trim();
+  // Accept either name from CI; normalize to BOTH forms for the app
+  const raw = (process.env.API_URL ?? process.env.API_BASE_URL ?? '').trim();
+  const key = (process.env.X_API_KEY ?? '').trim();
 
-  if (base) { env.API_BASE_URL = base; env.API_URL = base; }
-  if (key)  { env.X_API_KEY = key; }
+  // --- CHANGED: normalize to origin + /api ---------------------------------
+  const origin = raw.replace(/\/api\/?$/, '');                 // <<< CHANGED
+  const apiUrl = origin ? `${origin}/api` : '';                // <<< CHANGED
+  if (origin) env.API_BASE_URL = origin;                       // <<< CHANGED
+  if (apiUrl) env.API_URL = apiUrl;                            // <<< CHANGED
+  // -------------------------------------------------------------------------
 
-  // Fail fast so you see a clear error in CI instead of an empty table.
-  if (!env.API_URL)   throw new Error('Missing API_URL / API_BASE_URL (check .env or CI exports)');
-  if (!env.X_API_KEY) throw new Error('Missing X_API_KEY (check .env or CI exports)');
+  if (key) env.X_API_KEY = key;
 
-  // Helpful (redacted) log
+  // Fail fast
+  if (!env.API_URL)    throw new Error('Missing API_URL / API_BASE_URL (check .env or CI exports)');
+  if (!env.X_API_KEY)  throw new Error('Missing X_API_KEY (check .env or CI exports)');
+
   const logged = { ...env, X_API_KEY: env.X_API_KEY ? '***redacted***' : undefined };
   console.log('[caps] processArguments.env =', logged);
 
@@ -24,16 +29,16 @@ function buildEnvForApp(): Record<string, string> {
 
 export function buildCaps() {
   const env = buildEnvForApp();
-  const udid = process.env.UDID || process.env.BOOTED_UDID; // fallback to CI-provided UDID
+  const udid = process.env.UDID || process.env.BOOTED_UDID;
 
   return {
     platformName: 'iOS',
     'appium:automationName': 'XCUITest',
     'appium:deviceName': process.env.DEVICE_NAME || 'iPhone 16 Pro',
-    'appium:udid': udid,                         // optional
-    'appium:app': process.env.APP_PATH,          // or bundleId
+    'appium:udid': udid,
+    'appium:app': process.env.APP_PATH,
     'appium:newCommandTimeout': 300,
-    'appium:processArguments': { args: [], env }, // <-- populated with API env
+    'appium:processArguments': { args: [], env },
     'appium:autoAcceptAlerts': true,
     'appium:waitForQuiescence': false,
     'appium:wdaStartupRetries': 2,
