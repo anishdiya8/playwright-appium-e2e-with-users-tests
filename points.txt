@@ -52,6 +52,8 @@ npx playwright test tests/appium.spec.ts --workers=1 --retries=0
 
 scripts/*.sh are executable (chmod +x scripts/*.sh).
 
+chmod +x scripts/run-api-tests.sh
+
 ...
 aws api
 cd "/Users/user/Desktop/Files-not-on-onedrive/anish-projects/reqres-api/reqres-lambda"  

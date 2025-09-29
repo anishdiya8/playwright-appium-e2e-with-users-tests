@@ -30,6 +30,8 @@ steps:
       # deps
       node --version && npm --version
       npm ci
+      # ensure scripts are executable before calling them
+      chmod +x scripts/*.sh
 
       # bring app artifact into workspace
       buildkite-agent artifact download "artifacts/SimpleAPIAppanish.app.zip" .

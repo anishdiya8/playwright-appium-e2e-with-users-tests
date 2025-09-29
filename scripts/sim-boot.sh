@@ -1,64 +1,131 @@
-#!/usr/bin/env bash
-set -euo pipefail
-if [ -f ".env" ]; then set -a; . ./.env; set +a; fi
-# Requested simulator name: CLI arg > env > default
-DEVICE_NAME="${1:-${DEVICE_NAME:-iPhone 16 Pro}}"
-echo "[sim-boot] Target device: ${DEVICE_NAME}"
+env:
+  DEVICE_NAME: "iPhone 16 Pro"
+  API_BASE_URL: "https://sdbnrxt339.execute-api.ap-southeast-2.amazonaws.com"
+  X_API_KEY: "demo-key-123"
+  APP_ZIP_URL: "https://ios-ci-artifacts-bucket-anish.s3.ap-southeast-2.amazonaws.com/ios/SimpleAPIAppanish.app.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAUHVSWCJQTPALQ4XL%2F20250927%2Fap-southeast-2%2Fs3%2Faws4_request&X-Amz-Date=20250927T224608Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=ab10be1924c4bf5304dbedc9f8aedf186b46557f39dec24865d638fdf8accc6e"
 
-# Ensure artifacts dir for UDID handoff
-mkdir -p artifacts
+steps:
+  - label: ":package: Download prebuilt iOS app"
+    key: build-app
+    agents: { queue: default }
+    commands:
+      - set -euo pipefail
+      - mkdir -p artifacts
+      - echo "Downloading app zip"
+      - curl -fL "$APP_ZIP_URL" -o artifacts/SimpleAPIAppanish.app.zip
+      - du -h artifacts/SimpleAPIAppanish.app.zip || true
+      - buildkite-agent artifact upload artifacts/SimpleAPIAppanish.app.zip
 
-# Pick the latest installed iOS runtime id (e.g., com.apple.CoreSimulator.SimRuntime.iOS-18-6)
-RUNTIME_ID="$(xcrun simctl list runtimes | awk '/iOS/ {print $NF}' | tail -1)"
-if [[ -z "${RUNTIME_ID}" || "${RUNTIME_ID}" == "(unavailable,"* ]]; then
-  echo "[sim-boot] ERROR: No iOS Simulator runtimes found. Install via Xcode → Settings → Platforms."
-  exit 1
-fi
-echo "[sim-boot] Using runtime: ${RUNTIME_ID}"
+  - wait
 
-# Resolve device type id from the human name (e.g., "iPhone 16 Pro")
-DEVTYPE_ID="$(xcrun simctl list devicetypes | awk -v n="$DEVICE_NAME" -F'[()]' '$1 ~ ("^" n "$") {print $2; exit}')"
-# If exact match wasn’t found, try a looser match
-if [[ -z "${DEVTYPE_ID}" ]]; then
-  DEVTYPE_ID="$(xcrun simctl list devicetypes | awk -v n="$DEVICE_NAME" -F'[()]' '$1 ~ n {print $2; exit}')"
-fi
-if [[ -z "${DEVTYPE_ID}" ]]; then
-  echo "[sim-boot] ERROR: No device type found matching \"${DEVICE_NAME}\""
-  xcrun simctl list devicetypes | sed 's/^/  /'
-  exit 1
-fi
-echo "[sim-boot] Device type id: ${DEVTYPE_ID}"
+  - label: ":test_tube: E2E (Playwright + Appium)"
+    key: e2e
+    agents: { queue: default }
+    concurrency: 1
+    concurrency_group: ios-simulator
+    timeout_in_minutes: 60
+    commands: |
+      set -euo pipefail
 
-# Try to reuse an existing AVAILABLE device with that name
-UDID="$(xcrun simctl list devices available | awk -F '[()]' -v n="$DEVICE_NAME" '$1 ~ (" " n " \\(") {print $2; exit}')"
+      # deps
+      node --version && npm --version
+      npm ci
 
-# Create if not present
-if [[ -z "${UDID}" ]]; then
-  echo "[sim-boot] Creating simulator '${DEVICE_NAME}' (${DEVTYPE_ID}, ${RUNTIME_ID})"
-  UDID="$(xcrun simctl create "$DEVICE_NAME" "$DEVTYPE_ID" "$RUNTIME_ID")"
-fi
-echo "[sim-boot] UDID: ${UDID}"
+      # bring app artifact into workspace
+      buildkite-agent artifact download "artifacts/SimpleAPIAppanish.app.zip" .
+      echo "Before unzip:" && ls -lah artifacts || true
+      du -h artifacts/SimpleAPIAppanish.app.zip || true
+      unzip -oq artifacts/SimpleAPIAppanish.app.zip -d artifacts
+      echo "After unzip:" && ls -lah artifacts || true
 
-# Determine current state (Booted / Shutdown / Creating / etc.)
-STATE="$(xcrun simctl list devices | awk -F '[()]' -v id="$UDID" '$0 ~ id {gsub(/^[[:space:]]+|[[:space:]]+$/,"",$3); print $3; exit}')"
-echo "[sim-boot] Current state: ${STATE:-unknown}"
+      # ---- .app detection (artifacts/ only) ----
+      echo "[debug] scanning for .app bundles under ./artifacts..."
+      /usr/bin/find artifacts -maxdepth 3 -type d -name '*.app' -print || true
+      APP_PATH="$(/usr/bin/find artifacts -maxdepth 3 -type d -name '*.app' -print | head -n 1)"
 
-# Boot if not already booted
-if [[ "${STATE:-}" != "Booted" ]]; then
-  # If some other instance tried to boot it and it’s stuck, do a best-effort shutdown first
-  xcrun simctl shutdown "$UDID" >/dev/null 2>&1 || true
-  xcrun simctl boot "$UDID" >/dev/null 2>&1 || true
-fi
+      if [ -z "${APP_PATH:-}" ] || [ ! -d "$APP_PATH" ]; then
+        echo "ERROR: APP_PATH not found"
+        /bin/ls -lR artifacts || true
+        exit 1
+      fi
 
-# Wait until SpringBoard / System App is ready
-xcrun simctl bootstatus "$UDID" -b
+      echo "Using APP_PATH=$APP_PATH"
 
-# Show the Simulator UI only if not already running (avoid duplicate windows)
-if ! pgrep -x "Simulator" >/dev/null 2>&1; then
-  open -a Simulator --args -CurrentDeviceUDID "$UDID" >/dev/null 2>&1 || true
-fi
+      # Persist + export for this step
+      if [ -z "${BUILDKITE_ENV_FILE:-}" ]; then
+        echo "ERROR: BUILDKITE_ENV_FILE is not set"; exit 1
+      fi
+      {
+        echo "APP_PATH=$APP_PATH"
+        echo "IOS_APP_DIR=$APP_PATH"
+      } >> "$BUILDKITE_ENV_FILE"
+      export IOS_APP_DIR="$APP_PATH"
 
-# Hand off UDID to downstream steps
-echo "${UDID}" > artifacts/sim-udid.txt
+      # Boot ONE simulator and capture its UDID
+      bash scripts/sim-boot.sh "$DEVICE_NAME"
+      export SIM_NAME="$DEVICE_NAME"
+      BOOTED_UDID="$(cat artifacts/sim-udid.txt 2>/dev/null || true)"
+      if [ -z "${BOOTED_UDID:-}" ]; then
+        BOOTED_UDID="$(xcrun simctl list devices booted | sed -n 's/.*(\([A-F0-9-]\{36\}\)).*/\1/p' | head -n1 || true)"
+      fi
+      echo "Booted UDID: ${BOOTED_UDID:-unknown}"
+      if [ -z "${BOOTED_UDID:-}" ]; then
+        echo "ERROR: No booted simulator UDID found"; exit 1
+      fi
+      {
+        echo "SIM_UDID=$BOOTED_UDID"
+        echo "BOOTED_UDID=$BOOTED_UDID"
+      } >> "$BUILDKITE_ENV_FILE"
+      export SIM_UDID="$BOOTED_UDID"
+      export BOOTED_UDID="$BOOTED_UDID"
 
-echo "[sim-boot] Simulator ready: ${DEVICE_NAME} (${UDID})"
+      # Optional: read bundle id & pre-install
+      if [ -f "$IOS_APP_DIR/Info.plist" ]; then
+        IOS_BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$IOS_APP_DIR/Info.plist" 2>/dev/null || true)"
+        if [ -n "${IOS_BUNDLE_ID:-}" ]; then
+          echo "[install] xcrun simctl install $BOOTED_UDID $IOS_APP_DIR"
+          xcrun simctl install "$BOOTED_UDID" "$IOS_APP_DIR" || true
+          echo "IOS_BUNDLE_ID=$IOS_BUNDLE_ID" >> "$BUILDKITE_ENV_FILE"
+          export IOS_BUNDLE_ID="$IOS_BUNDLE_ID"
+        fi
+      fi
+
+      # ---- Inject env into the Simulator (no app code changes) ----
+      echo "[sim-env] Injecting API_BASE_URL and X_API_KEY into simulator launchd env"
+      xcrun simctl spawn "$BOOTED_UDID" launchctl setenv API_BASE_URL "$API_BASE_URL"
+      xcrun simctl spawn "$BOOTED_UDID" launchctl setenv X_API_KEY "$X_API_KEY"
+      echo "[sim-env] Verifying injected vars:"
+      xcrun simctl spawn "$BOOTED_UDID" printenv | grep -E '^API_BASE_URL=|^X_API_KEY=' | sed -E 's/(X_API_KEY=).*/\1***redacted***/' || true
+
+      # Start Appium (should not boot another sim)
+      bash scripts/start-appium.sh
+      bash scripts/wait-on-http.sh http://127.0.0.1:4723/status 45
+
+      # hosted API checks
+      echo "Using API_BASE_URL=$API_BASE_URL"
+      env | sort | grep -E 'API_BASE_URL|DEVICE_NAME|X_API_KEY|APP_PATH|IOS_APP_DIR|IOS_BUNDLE_ID|BOOTED_UDID' || true
+      if [ -z "$IOS_APP_DIR" ] || [ ! -d "$IOS_APP_DIR" ]; then
+        echo "ERROR: IOS_APP_DIR missing/invalid: $IOS_APP_DIR"; exit 1
+      fi
+      curl -fsS "$API_BASE_URL/healthz" || echo "No /healthz (that's fine)"
+
+      # run tests
+      export DEVICE_NAME="$DEVICE_NAME" API_BASE_URL="$API_BASE_URL" X_API_KEY="$X_API_KEY" IOS_APP_DIR="$IOS_APP_DIR" IOS_BUNDLE_ID="${IOS_BUNDLE_ID:-}"
+      npm run test:ci
+
+      # stop appium
+      bash scripts/stop-appium.sh || { echo "Dumping appium.log due to stop failure"; tail -n +1 artifacts/appium.log || true; exit 1; }
+    artifact_paths:
+      - "playwright-report/**"
+      - "junit-report.xml"
+      - "artifacts/**"
+
+  - wait
+
+  - label: ":memo: Annotate JUnit"
+    agents: { queue: default }
+    plugins:
+      - junit-annotate#v2.4.0:
+          artifacts: "junit-report.xml"
+          soft_fail: true
+    commands: "echo Annotating JUnit results"
