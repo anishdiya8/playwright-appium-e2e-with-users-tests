@@ -31,7 +31,6 @@ steps:
       node --version && npm --version
       npm ci
 
-
       # bring app artifact into workspace
       buildkite-agent artifact download "artifacts/SimpleAPIAppanish.app.zip" .
       echo "Before unzip:" && ls -lah artifacts || true
@@ -146,7 +145,16 @@ steps:
       if [ -z "$$IOS_APP_DIR" ] || [ ! -d "$$IOS_APP_DIR" ]; then
         echo "ERROR: IOS_APP_DIR missing/invalid: $$IOS_APP_DIR"; exit 1
       fi
-      curl -fsS "$$API_BASE_URL/healthz" || echo "No /healthz (that's fine)"
+
+      # --- NEW: ensure envs + probe API from CI host ---
+      : "${API_BASE_URL:?Missing API_BASE_URL}"
+      : "${X_API_KEY:?Missing X_API_KEY}"
+
+      echo "[probe] Curling API from the CI host with X-API-KEY"
+      set -x
+      curl -iS "$$API_BASE_URL/healthz" || true
+      curl -iS -H "x-api-key: $$X_API_KEY" "$$API_BASE_URL/users" || true
+      set +x
 
       # run tests
       export DEVICE_NAME="$$DEVICE_NAME" API_BASE_URL="$$API_BASE_URL" X_API_KEY="$$X_API_KEY" IOS_APP_DIR="$$IOS_APP_DIR" IOS_BUNDLE_ID="$${IOS_BUNDLE_ID:-}"
