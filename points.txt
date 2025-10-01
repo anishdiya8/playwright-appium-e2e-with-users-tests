@@ -94,3 +94,50 @@ Disable rollback [y/N]: N
 Save arguments to configuration file [Y/n]: Y
 SAM configuration file [samconfig.toml]:   ← press Enter
 SAM configuration environment [default]:    ← press Enter
+
+
+===
+export API_BASE_ORIGIN="https://sdbnrxt339.execute-api.ap-southeast-2.amazonaws.com"
+export X_API_KEY="demo-key-123"
+
+===
+
+APP_PATH="$(/usr/bin/find ./artifacts -maxdepth 5 -type d -name 'SimpleAPIAppanish*.app' -print -quit)"
+[ -d "$APP_PATH" ] || { echo "App not found"; exit 1; }
+echo "APP_PATH=$APP_PATH"
+
+APP_PATH=./artifacts/SimpleAPIAppanish.app
+===
+ BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Info.plist")"
+EXEC_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable'  "$APP_PATH/Info.plist")"
+echo "BUNDLE_ID=$BUNDLE_ID"
+echo "EXEC_NAME=$EXEC_NAME"
+
+BUNDLE_ID=com.anishmathew.SimpleAPIApp.SimpleAPIAppanish.dev123
+EXEC_NAME=SimpleAPIAppanish
+
+
+
+==inside simulator then
+
+user@users-MacBook-Pro ios-app % APP_PATH="$(xcrun simctl get_app_container booted "$BUNDLE_ID" app)"
+[ -d "$APP_PATH" ] || { echo "Installed app bundle not found"; exit 1; }
+echo "APP_PATH=$APP_PATH"
+APP_PATH=/Users/user/Library/Developer/CoreSimulator/Devices/98F4297B-7A19-4B76-98B2-C5AA6880EE8F/data/Containers/Bundle/Application/5B1AA25E-3308-4E9F-A355-AB3FE422F796/SimpleAPIAppanish.app
+
+...
+r@users-MacBook-Pro ios-app % EXEC_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP_PATH/Info.plist")"
+echo "EXEC_NAME=$EXEC_NAME"
+EXEC_NAME=SimpleAPIAppanish
+...
+xcrun simctl install booted "$APP_PATH" 2>/dev/null || true
+xcrun simctl launch --console booted "$BUNDLE_ID"
+
+...
+seocnd terminall
+
+
+xcrun simctl spawn booted log stream \
+  --predicate 'subsystem == "com.apple.CFNetwork" && process == "'$EXEC_NAME'"' --info
+
+
