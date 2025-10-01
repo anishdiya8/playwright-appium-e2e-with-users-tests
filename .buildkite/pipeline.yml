@@ -239,6 +239,8 @@ steps:
     agents: { queue: default }
     plugins:
       - junit-annotate#v2.4.0:
-          artifacts: "junit-report.xml"
+          # Look for the report anywhere in the workspace artifacts
+          artifacts: "**/junit-report.xml"
+          # Don’t fail the build if the report is missing
           soft_fail: true
     commands: "echo Annotating JUnit results"
