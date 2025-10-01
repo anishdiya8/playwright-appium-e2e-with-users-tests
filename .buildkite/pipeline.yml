@@ -183,7 +183,7 @@ steps:
       bash scripts/wait-on-http.sh http://127.0.0.1:4723/status 45
 
       # hosted API checks (from CI host)
-      ORIGIN="${API_BASE_URL%/api}"
+      ORIGIN="$(printf '%s' "$API_BASE_URL" | sed 's#/api$##')"
       echo "[probe] Curling API from the CI host"
       set -x
       curl -iS "$ORIGIN/healthz" || true
