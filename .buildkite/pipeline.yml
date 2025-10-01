@@ -184,4 +184,3 @@ steps:
           artifacts: "junit-report.xml"
           soft_fail: true
     command: "echo Annotating JUnit results"
-\
