@@ -237,10 +237,10 @@ steps:
 
   - label: ":memo: Annotate JUnit"
     agents: { queue: default }
+    # This step only depends on the test step's artifacts
+    depends_on: e2e
     plugins:
       - junit-annotate#v2.4.0:
-          # Look for the report anywhere in the workspace artifacts
-          artifacts: "**/junit-report.xml"
-          # Don’t fail the build if the report is missing
-          soft_fail: true
+          artifacts: "junit-report.xml"   # exact filename written by Playwright
+          soft_fail: true                 # don't fail pipeline if it's missing
     commands: "echo Annotating JUnit results"
