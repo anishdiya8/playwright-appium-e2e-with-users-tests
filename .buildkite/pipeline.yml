@@ -173,8 +173,13 @@ steps:
       xcrun simctl spawn "$$BOOTED_UDID" launchctl setenv API_BASE_URL "$$API_BASE_URL"
       xcrun simctl spawn "$$BOOTED_UDID" launchctl setenv API_URL "$$API_URL"
       xcrun simctl spawn "$$BOOTED_UDID" launchctl setenv X_API_KEY "$$X_API_KEY"
+
       echo "[sim-env] Verifying injected vars:"
-      xcrun simctl spawn "$$BOOTED_UDID" printenv | grep -E '^(API_BASE_URL|API_URL|X_API_KEY)=' | sed -E 's/(X_API_KEY=).*/\1***redacted***/' || true
+      for k in API_BASE_URL API_URL X_API_KEY; do
+        v="$$(xcrun simctl spawn "$$BOOTED_UDID" launchctl getenv "$$k" || true)"
+        [ "$$k" = "X_API_KEY" ] && v="***redacted***"
+        echo "$$k=$$v"
+      done
 
       # Start Appium
       bash scripts/start-appium.sh
@@ -190,8 +195,8 @@ steps:
 
       # Launch once (use bundle id) so logs start flowing (best-effort)
       if [ -n "$${IOS_BUNDLE_ID:-}" ]; then
-        echo "[launch] Launching app"
-        xcrun simctl launch --console "$$BOOTED_UDID" "$$IOS_BUNDLE_ID" || true
+        echo "[launch] Launching app (no console attach)"
+        xcrun simctl launch "$$BOOTED_UDID" "$$IOS_BUNDLE_ID" >/dev/null 2>&1 || true
         sleep 2
       fi
 
