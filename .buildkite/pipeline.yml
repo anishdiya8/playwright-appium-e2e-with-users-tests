@@ -7,8 +7,9 @@ env:
 
 steps:
   - label: ":package: Download prebuilt iOS app"
-    key: build-app
-    agents: { queue: default }
+    key: "build-app"
+    agents:
+      queue: "default"
     interpolate: false
     command: |
       set -euo pipefail
@@ -21,10 +22,11 @@ steps:
   - wait
 
   - label: ":test_tube: E2E (Playwright + Appium with Arch Check)"
-    key: e2e
-    agents: { queue: default }
+    key: "e2e"
+    agents:
+      queue: "default"
     concurrency: 1
-    concurrency_group: ios-simulator
+    concurrency_group: "ios-simulator"
     timeout_in_minutes: 60
     interpolate: false
     command: |
@@ -169,7 +171,6 @@ steps:
 
       # stop appium
       bash scripts/stop-appium.sh || { echo "Dumping appium.log due to stop failure"; tail -n +1 artifacts/appium.log || true; exit 1; }
-
     artifact_paths:
       - "playwright-report/**"
       - "junit-report.xml"
@@ -178,9 +179,11 @@ steps:
   - wait
 
   - label: ":memo: Annotate JUnit"
-    agents: { queue: default }
+    agents:
+      queue: "default"
     plugins:
       - junit-annotate#v2.4.0:
           artifacts: "junit-report.xml"
           soft_fail: true
+    interpolate: false
     command: "echo Annotating JUnit results"
