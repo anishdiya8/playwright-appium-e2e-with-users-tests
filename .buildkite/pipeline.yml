@@ -218,7 +218,10 @@ steps:
         kill "$$(cat artifacts/tail.pid)" 2>/dev/null || true
         exit 1
       }
-
+      
+      echo "[check] Expecting junit-report.xml in workspace:"
+      ls -l junit-report.xml || echo "junit-report.xml is missing"
+      
       # stop the live tail
       kill "$$(cat artifacts/tail.pid)" 2>/dev/null || true
 
