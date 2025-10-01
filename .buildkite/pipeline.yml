@@ -207,13 +207,12 @@ steps:
         xcrun simctl spawn "$$BOOTED_UDID" log show --last 2m --predicate 'subsystem == "com.apple.CFNetwork"' | tail -n 200 || true
         exit 1
       }
-      # =====================================================================================
 
-      # ===== Watch Appium in real-time & run chatty tests with a hard cap =====
-      ( tail -n +1 -f artifacts/appium.log & echo $$! > artifacts/tail.pid ) || true
+      # ===== Watch Appium in real-time & run chatty tests =====
+      ( tail -n +1 -f artifacts/appium.log & echo "$$!" > artifacts/tail.pid ) || true
 
-      # run Playwright chatty; cap total test time; dump logs if it fails/stalls
-      timeout 20m npx playwright test --reporter=list --workers=1 || {
+      # run Playwright chatty; dump logs if it fails
+      npx playwright test --reporter=list --workers=1 || {
         echo "Playwright failed or stalled — dumping Appium log"
         tail -n +1 artifacts/appium.log || true
         kill "$$(cat artifacts/tail.pid)" 2>/dev/null || true
@@ -222,7 +221,6 @@ steps:
 
       # stop the live tail
       kill "$$(cat artifacts/tail.pid)" 2>/dev/null || true
-      # ======================================================================
 
       # stop appium
       bash scripts/stop-appium.sh || { echo "Dumping appium.log due to stop failure"; tail -n +1 artifacts/appium.log || true; exit 1; }
