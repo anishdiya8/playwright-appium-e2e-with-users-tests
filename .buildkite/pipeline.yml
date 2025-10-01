@@ -184,6 +184,24 @@ steps:
       # Start Appium
       bash scripts/start-appium.sh
       bash scripts/wait-on-http.sh http://127.0.0.1:4723/status 45
+      
+      echo "[wda] Waiting for WebDriverAgent (port 8100) to be ready…"
+      WDA_OK=0
+      for i in {1..90}; do
+        if curl -fsS http://127.0.0.1:8100/status >/dev/null 2>&1; then
+          echo "[wda] Ready"
+          WDA_OK=1
+          break
+        fi
+        sleep 1
+      done
+
+      if [ "$WDA_OK" -ne 1 ]; then
+        echo "[wda] Timed out waiting for WDA on http://127.0.0.1:8100/status"
+        echo "Dumping recent Appium log for clues:"
+        tail -n 300 artifacts/appium.log || true
+        exit 1
+      fi
 
       # hosted API checks (from CI host)
       ORIGIN="$$(printf '%s' "$$API_BASE_URL" | sed 's#/api$##')"
