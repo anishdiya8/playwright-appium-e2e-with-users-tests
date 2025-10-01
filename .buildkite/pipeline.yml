@@ -204,17 +204,20 @@ steps:
       }
       # =====================================================================================
 
-      # run tests — export env only; force app-path launch (not bundleId)
-      export DEVICE_NAME="$$DEVICE_NAME" \
-             API_BASE_URL="$$API_BASE_URL" \
-             API_URL="$$API_URL" \
-             X_API_KEY="$$X_API_KEY" \
-             IOS_APP_DIR="$$IOS_APP_DIR"
+      # ===== Watch Appium in real-time & run chatty tests with a hard cap =====
+      ( tail -n +1 -f artifacts/appium.log & echo $$! > artifacts/tail.pid ) || true
 
-      unset IOS_BUNDLE_ID
-      echo "IOS_BUNDLE_ID=" >> "$$BUILDKITE_ENV_FILE"
+      # run Playwright chatty; cap total test time; dump logs if it fails/stalls
+      timeout 20m npx playwright test --reporter=list --workers=1 || {
+        echo "Playwright failed or stalled — dumping Appium log"
+        tail -n +1 artifacts/appium.log || true
+        kill "$$(cat artifacts/tail.pid)" 2>/dev/null || true
+        exit 1
+      }
 
-      npm run test:ci
+      # stop the live tail
+      kill "$$(cat artifacts/tail.pid)" 2>/dev/null || true
+      # ======================================================================
 
       # stop appium
       bash scripts/stop-appium.sh || { echo "Dumping appium.log due to stop failure"; tail -n +1 artifacts/appium.log || true; exit 1; }
