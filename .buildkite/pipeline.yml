@@ -139,7 +139,7 @@ steps:
       bash scripts/wait-on-http.sh http://127.0.0.1:4723/status 45
 
       # probe hosted API (no localhost)
-      ORIGIN="${API_BASE_URL%/api}"
+      ORIGIN="$(echo "$API_BASE_URL" | sed 's#/api$##')"
       set -x
       curl -iS "$ORIGIN/healthz" || true
       curl -iS -H "x-api-key: $X_API_KEY" "$API_BASE_URL/users?page=2" || true
@@ -171,6 +171,7 @@ steps:
 
       # stop appium
       bash scripts/stop-appium.sh || { echo "Dumping appium.log due to stop failure"; tail -n +1 artifacts/appium.log || true; exit 1; }
+
     artifact_paths:
       - "playwright-report/**"
       - "junit-report.xml"
