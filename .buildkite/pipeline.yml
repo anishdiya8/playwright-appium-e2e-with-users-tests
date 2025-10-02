@@ -231,13 +231,14 @@ steps:
       # ===== Watch Appium in real-time & run chatty tests =====
       ( tail -n +1 -f artifacts/appium.log & echo "$$!" > artifacts/tail.pid ) || true
 
-      # run Playwright chatty; dump logs if it fails
-      npx playwright test --reporter=list,junit --workers=1 --reporter-junit-output=junit-report.xml || {
-      echo "Playwright failed or stalled — dumping Appium log"
-      tail -n +1 artifacts/appium.log || true
-      kill "$$(cat artifacts/tail.pid)" 2>/dev/null || true
-      exit 1
+          # run Playwright chatty; dump logs if it fails
+      npx playwright test --reporter=list --workers=1 || {
+        echo "Playwright failed or stalled — dumping Appium log"
+        tail -n +1 artifacts/appium.log || true
+        kill "$$(cat artifacts/tail.pid)" 2>/dev/null || true
+        exit 1
       }
+
       
       echo "[check] Expecting junit-report.xml in workspace:"
       ls -l junit-report.xml || echo "junit-report.xml is missing"
