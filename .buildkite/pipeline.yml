@@ -184,7 +184,7 @@ steps:
       # Start Appium
       bash scripts/start-appium.sh
       bash scripts/wait-on-http.sh http://127.0.0.1:4723/status 45
-            
+
       : <<'WDA_OFF'
       echo "[wda] Waiting for WebDriverAgent (port 8100) to be ready…"
       WDA_OK=0
@@ -231,26 +231,22 @@ steps:
       # ===== Watch Appium in real-time & run chatty tests =====
       ( tail -n +1 -f artifacts/appium.log & echo "$$!" > artifacts/tail.pid ) || true
 
-          # ✅ correct — uses reporters from playwright.config.ts, including JUnit at junit-report.xml
+      # ✅ Uses reporters from playwright.config.ts (includes junit-report.xml)
       npx playwright test --config=playwright.config.ts --workers=1 || {
         echo "Playwright failed or stalled — dumping Appium log"
         tail -n +1 artifacts/appium.log || true
-        kill "$(cat artifacts/tail.pid)" 2>/dev/null || true
+        kill "$$(cat artifacts/tail.pid)" 2>/dev/null || true
         exit 1
-        }
+      }
 
-          # Verify/normalize the JUnit file so the next step can always find it
-          echo "[check] Expecting junit-report.xml in workspace (pwd: $$(pwd))"
-          if [ ! -f junit-report.xml ]; then
-            CANDIDATE="$$(/usr/bin/find . -maxdepth 3 -type f \( -name 'junit*.xml' -o -name '*-junit.xml' -o -name 'results.xml' \) | head -n1 || true)"
-            [ -n "$$CANDIDATE" ] && cp -f "$$CANDIDATE" junit-report.xml || true
-          fi
-          node -e "console.log('Playwright version:', require('playwright/package.json').version)"
-          ls -l junit-report.xml || echo "junit-report.xml is missing"
-
-      # stop the live tail
-      kill "$$(cat artifacts/tail.pid)" 2>/dev/null || true
-
+      # Verify/normalize the JUnit file so the next step can always find it
+      echo "[check] Expecting junit-report.xml in workspace (pwd: $$(pwd))"
+      if [ ! -f junit-report.xml ]; then
+        CANDIDATE="$$(/usr/bin/find . -maxdepth 3 -type f \( -name 'junit*.xml' -o -name '*-junit.xml' -o -name 'results.xml' \) | head -n1 || true)"
+        [ -n "$$CANDIDATE" ] && cp -f "$$CANDIDATE" junit-report.xml || true
+      fi
+      node -e "console.log('Playwright version:', require('playwright/package.json').version)"
+      ls -l junit-report.xml || echo "junit-report.xml is missing"
 
       # stop the live tail
       kill "$$(cat artifacts/tail.pid)" 2>/dev/null || true
@@ -262,14 +258,14 @@ steps:
       - "junit-report.xml"
       - "artifacts/**"
 
-      - wait
+  - wait
 
-      - label: ":memo: Annotate JUnit"
-        agents: { queue: default }
-        depends_on: e2e
-        plugins:
-          - junit-annotate#v2.7.0:
-              artifacts: "junit-report.xml"
-              soft_fail: true
-              run-in-docker: false   # <-- stop using Docker; run on host
-        commands: "echo Annotating JUnit results"
+  - label: ":memo: Annotate JUnit"
+    agents: { queue: default }
+    depends_on: e2e
+    plugins:
+      - junit-annotate#v2.7.0:
+          artifacts: "junit-report.xml"
+          soft_fail: true
+          run-in-docker: false
+    commands: "echo Annotating JUnit results"
