@@ -237,6 +237,7 @@ steps:
         tail -n +1 artifacts/appium.log || true
         kill "$(cat artifacts/tail.pid)" 2>/dev/null || true
         exit 1
+        }
 
           # Verify/normalize the JUnit file so the next step can always find it
           echo "[check] Expecting junit-report.xml in workspace (pwd: $$(pwd))"
