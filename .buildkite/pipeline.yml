@@ -231,13 +231,12 @@ steps:
       # ===== Watch Appium in real-time & run chatty tests =====
       ( tail -n +1 -f artifacts/appium.log & echo "$$!" > artifacts/tail.pid ) || true
 
-      # run Playwright using the config (which sets JUnit outputFile)
-          npx playwright test --config=playwright.config.ts --reporter=list --workers=1 || {
-            echo "Playwright failed or stalled — dumping Appium log"
-            tail -n +1 artifacts/appium.log || true
-            kill "$$(cat artifacts/tail.pid)" 2>/dev/null || true
-            exit 1
-          }
+          # ✅ correct — uses reporters from playwright.config.ts, including JUnit at junit-report.xml
+      npx playwright test --config=playwright.config.ts --workers=1 || {
+        echo "Playwright failed or stalled — dumping Appium log"
+        tail -n +1 artifacts/appium.log || true
+        kill "$(cat artifacts/tail.pid)" 2>/dev/null || true
+        exit 1
 
           # Verify/normalize the JUnit file so the next step can always find it
           echo "[check] Expecting junit-report.xml in workspace (pwd: $$(pwd))"
