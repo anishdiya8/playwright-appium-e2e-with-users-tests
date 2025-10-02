@@ -263,12 +263,15 @@ steps:
       - "artifacts/**"
 
   - wait
-      - label: ":memo: Annotate JUnit"
-        agents: { queue: default }
-        depends_on: e2e
-        plugins:
-          - junit-annotate#v2.4.0:
-              artifacts: "junit-report.xml"
-              soft_fail: true
-              run-in-docker: false
-        commands: "echo Annotating JUnit results"
+
+    - label: ":memo: Annotate JUnit"
+      agents:
+        queue: default
+      depends_on: e2e
+      plugins:
+        - junit-annotate#v2.7.0:
+            artifacts: "junit-report.xml"
+            soft_fail: true
+            run-in-docker: false
+      commands:
+        - echo "Annotating JUnit results"
