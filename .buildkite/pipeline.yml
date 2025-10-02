@@ -262,14 +262,14 @@ steps:
       - "junit-report.xml"
       - "artifacts/**"
 
-  - wait
+      - wait
 
-  - label: ":memo: Annotate JUnit"
-    agents: { queue: default }
-    # This step only depends on the test step's artifacts
-    depends_on: e2e
-    plugins:
-      - junit-annotate#v2.4.0:
-          artifacts: "junit-report.xml"   # exact filename written by Playwright
-          soft_fail: true                 # don't fail pipeline if it's missing
-    commands: "echo Annotating JUnit results"
+      - label: ":memo: Annotate JUnit"
+        agents: { queue: default }
+        depends_on: e2e
+        plugins:
+          - junit-annotate#v2.7.0:
+              artifacts: "junit-report.xml"
+              soft_fail: true
+              run-in-docker: false   # <-- stop using Docker; run on host
+        commands: "echo Annotating JUnit results"
