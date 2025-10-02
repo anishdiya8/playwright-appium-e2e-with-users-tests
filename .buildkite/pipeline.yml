@@ -57,7 +57,7 @@ steps:
         APP_PATH="$(
           /usr/bin/find artifacts -type d -name '*.app' -print | head -n1
         )"
-        if [ -z "$${APP_PATH:-}" ]; then
+        if [ -z "${APP_PATH:-}" ]; then
           APP_PATH="$(
             /usr/bin/find . -type d -name '*.app' -print | grep -vE '^./node_modules/' | head -n1
           )"
@@ -65,189 +65,165 @@ steps:
       fi
 
       # Canonicalize to an absolute path for safety
-      if [ -n "$${APP_PATH:-}" ]; then
-        APP_PATH="$$(cd "$$(dirname "$$APP_PATH")" && pwd)/$$(basename "$$APP_PATH")"
+      if [ -n "${APP_PATH:-}" ]; then
+        APP_PATH="$(cd "$(dirname "$APP_PATH")" && pwd)/$(basename "$APP_PATH")"
       fi
 
       # Final sanity
-      if [ -z "$${APP_PATH:-}" ] || [ ! -d "$$APP_PATH" ]; then
+      if [ -z "${APP_PATH:-}" ] || [ ! -d "$APP_PATH" ]; then
         echo "ERROR: APP_PATH not found (expected an .app bundle, ideally artifacts/SimpleAPIAppanish.app)."
         echo "--- pwd ---"; pwd
         echo "--- ls -l artifacts ---"; ls -l artifacts || true
         echo "--- tree artifacts (1 level) ---"; /usr/bin/find artifacts -maxdepth 1 -type d -print || true
         exit 1
       fi
-      echo "Using APP_PATH=$$APP_PATH"
-      /bin/ls -ld "$$APP_PATH" || true
+      echo "Using APP_PATH=$APP_PATH"
+      /bin/ls -ld "$APP_PATH" || true
 
       # ---- Architecture checks (fail fast if app arch mismatches agent) ----
-      echo "[arch-check] Agent architecture: $$(uname -m)"
-      AGENT_ARCH="$$(uname -m)"
-      EXEC_NAME="$$(basename "$$APP_PATH")"
-      APP_BINARY="$$APP_PATH/$$EXEC_NAME"
-      if [ ! -f "$$APP_BINARY" ]; then
-        APP_BINARY="$$(find "$$APP_PATH" -type f -perm +111 -print | head -n1)"
+      echo "[arch-check] Agent architecture: $(uname -m)"
+      AGENT_ARCH="$(uname -m)"
+      EXEC_NAME="$(basename "$APP_PATH")"
+      APP_BINARY="$APP_PATH/$EXEC_NAME"
+      if [ ! -f "$APP_BINARY" ]; then
+        APP_BINARY="$(find "$APP_PATH" -type f -perm +111 -print | head -n1)"
       fi
-      if [ ! -f "$$APP_BINARY" ]; then
+      if [ ! -f "$APP_BINARY" ]; then
         echo "ERROR: Could not find executable inside .app"; exit 1
       fi
-      echo "[arch-check] App binary: $$APP_BINARY"
-      file "$$APP_BINARY"
-      APP_ARCH="$$(file "$$APP_BINARY" | awk '{print $$NF}')"
-      if [ "$$AGENT_ARCH" = "arm64" ] && [ "$$APP_ARCH" = "x86_64" ]; then
+      echo "[arch-check] App binary: $APP_BINARY"
+      file "$APP_BINARY"
+      APP_ARCH="$(file "$APP_BINARY" | awk '{print $NF}')"
+      if [ "$AGENT_ARCH" = "arm64" ] && [ "$APP_ARCH" = "x86_64" ]; then
         echo "❌ ARCH MISMATCH: App is x86_64 but Buildkite agent is arm64. App will not run in Apple Silicon simulator."
         exit 1
       fi
-      echo "✅ ARCH OK: App ($$APP_ARCH) matches agent ($$AGENT_ARCH)"
+      echo "✅ ARCH OK: App ($APP_ARCH) matches agent ($AGENT_ARCH)"
 
       # ===================== Patch Info.plist to avoid localhost =====================
-      if [ -f "$$APP_PATH/Info.plist" ]; then
+      if [ -f "$APP_PATH/Info.plist" ]; then
         echo "[patch] Writing API_URL / API_BASE_URL / X_API_KEY into Info.plist"
-        /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$$APP_PATH/Info.plist" >/dev/null || true
+        /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Info.plist" >/dev/null || true
 
-        plutil -replace API_URL      -string "$$API_URL"      "$$APP_PATH/Info.plist"
-        plutil -replace API_BASE_URL -string "$$API_BASE_URL" "$$APP_PATH/Info.plist"
+        plutil -replace API_URL      -string "$API_URL"      "$APP_PATH/Info.plist"
+        plutil -replace API_BASE_URL -string "$API_BASE_URL" "$APP_PATH/Info.plist"
 
         set +x
-        plutil -replace X_API_KEY -string "$$X_API_KEY" "$$APP_PATH/Info.plist"
+        plutil -replace X_API_KEY -string "$X_API_KEY" "$APP_PATH/Info.plist"
         set -x
 
         echo "[patch] Verifying:"
-        /usr/libexec/PlistBuddy -c 'Print :API_URL'      "$$APP_PATH/Info.plist"
-        /usr/libexec/PlistBuddy -c 'Print :API_BASE_URL' "$$APP_PATH/Info.plist"
+        /usr/libexec/PlistBuddy -c 'Print :API_URL'      "$APP_PATH/Info.plist"
+        /usr/libexec/PlistBuddy -c 'Print :API_BASE_URL' "$APP_PATH/Info.plist"
       else
-        echo "ERROR: Info.plist not found inside $$APP_PATH"; exit 1
+        echo "ERROR: Info.plist not found inside $APP_PATH"; exit 1
       fi
       # ==============================================================================
 
       # Persist + export for this step
-      if [ -z "$${BUILDKITE_ENV_FILE:-}" ]; then
+      if [ -z "${BUILDKITE_ENV_FILE:-}" ]; then
         echo "ERROR: BUILDKITE_ENV_FILE is not set"; exit 1
       fi
       {
-        echo "APP_PATH=$$APP_PATH"
-        echo "IOS_APP_DIR=$$APP_PATH"
-      } >> "$$BUILDKITE_ENV_FILE"
-      export IOS_APP_DIR="$$APP_PATH"
+        echo "APP_PATH=$APP_PATH"
+        echo "IOS_APP_DIR=$APP_PATH"
+      } >> "$BUILDKITE_ENV_FILE"
+      export IOS_APP_DIR="$APP_PATH"
 
       # Clean up any strays (avoid multiple sims)
       xcrun simctl shutdown all || true
       rm -f artifacts/sim-udid.txt || true
 
       # Boot ONE simulator and capture its UDID
-      bash scripts/sim-boot.sh "$$DEVICE_NAME"
-      export SIM_NAME="$$DEVICE_NAME"
+      bash scripts/sim-boot.sh "$DEVICE_NAME"
+      export SIM_NAME="$DEVICE_NAME"
 
-      BOOTED_UDID="$$(cat artifacts/sim-udid.txt 2>/dev/null || true)"
-      if [ -z "$${BOOTED_UDID:-}" ]; then
-        BOOTED_UDID="$$(xcrun simctl list devices booted | sed -n 's/.*(\([A-F0-9-]\{36\}\)).*/\1/p' | head -n1 || true)"
+      BOOTED_UDID="$(cat artifacts/sim-udid.txt 2>/dev/null || true)"
+      if [ -z "${BOOTED_UDID:-}" ]; then
+        BOOTED_UDID="$(xcrun simctl list devices booted | sed -n 's/.*(\([A-F0-9-]\{36\}\)).*/\1/p' | head -n1 || true)"
       fi
-      echo "Booted UDID: $${BOOTED_UDID:-unknown}"
-      [ -z "$${BOOTED_UDID:-}" ] && { echo "ERROR: No booted simulator UDID found"; exit 1; }
+      echo "Booted UDID: ${BOOTED_UDID:-unknown}"
+      [ -z "${BOOTED_UDID:-}" ] && { echo "ERROR: No booted simulator UDID found"; exit 1; }
 
       {
-        echo "SIM_UDID=$$BOOTED_UDID"
-        echo "BOOTED_UDID=$$BOOTED_UDID"
-      } >> "$$BUILDKITE_ENV_FILE"
-      export SIM_UDID="$$BOOTED_UDID"
-      export BOOTED_UDID="$$BOOTED_UDID"
+        echo "SIM_UDID=$BOOTED_UDID"
+        echo "BOOTED_UDID=$BOOTED_UDID"
+      } >> "$BUILDKITE_ENV_FILE"
+      export SIM_UDID="$BOOTED_UDID"
+      export BOOTED_UDID="$BOOTED_UDID"
 
       # Reset device to free space, then re-boot
       echo "[sim-clean] Resetting booted device to free space"
-      xcrun simctl shutdown "$$BOOTED_UDID" || true
-      xcrun simctl erase "$$BOOTED_UDID" || true
-      bash scripts/sim-boot.sh "$$DEVICE_NAME"
-      BOOTED_UDID="$$(cat artifacts/sim-udid.txt 2>/dev/null || true)"
-      [ -z "$${BOOTED_UDID:-}" ] && BOOTED_UDID="$$(xcrun simctl list devices booted | sed -n 's/.*(\([A-F0-9-]\{36\}\)).*/\1/p' | head -n1 || true)"
-      echo "Booted UDID (fresh): $${BOOTED_UDID:-unknown}"
-      [ -z "$${BOOTED_UDID:-}" ] && { echo "ERROR: No booted simulator UDID after reset"; exit 1; }
+      xcrun simctl shutdown "$BOOTED_UDID" || true
+      xcrun simctl erase "$BOOTED_UDID" || true
+      bash scripts/sim-boot.sh "$DEVICE_NAME"
+      BOOTED_UDID="$(cat artifacts/sim-udid.txt 2>/dev/null || true)"
+      [ -z "${BOOTED_UDID:-}" ] && BOOTED_UDID="$(xcrun simctl list devices booted | sed -n 's/.*(\([A-F0-9-]\{36\}\)).*/\1/p' | head -n1 || true)"
+      echo "Booted UDID (fresh): ${BOOTED_UDID:-unknown}"
+      [ -z "${BOOTED_UDID:-}" ] && { echo "ERROR: No booted simulator UDID after reset"; exit 1; }
 
       # (Re)install the *patched* bundle
-      IOS_BUNDLE_ID="$$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$$IOS_APP_DIR/Info.plist" 2>/dev/null || true)"
-      [ -n "$${IOS_BUNDLE_ID:-}" ] && xcrun simctl uninstall "$$BOOTED_UDID" "$$IOS_BUNDLE_ID" || true
-      echo "[install] xcrun simctl install $$BOOTED_UDID $$IOS_APP_DIR"
-      xcrun simctl install "$$BOOTED_UDID" "$$IOS_APP_DIR"
+      IOS_BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$IOS_APP_DIR/Info.plist" 2>/dev/null || true)"
+      [ -n "${IOS_BUNDLE_ID:-}" ] && xcrun simctl uninstall "$BOOTED_UDID" "$IOS_BUNDLE_ID" || true
+      echo "[install] xcrun simctl install $BOOTED_UDID $IOS_APP_DIR"
+      xcrun simctl install "$BOOTED_UDID" "$IOS_APP_DIR"
 
       # ALSO inject env at the simulator level (belt-and-braces)
       echo "[sim-env] Injecting API vars into simulator launchd env"
-      xcrun simctl spawn "$$BOOTED_UDID" launchctl setenv API_BASE_URL "$$API_BASE_URL"
-      xcrun simctl spawn "$$BOOTED_UDID" launchctl setenv API_URL "$$API_URL"
-      xcrun simctl spawn "$$BOOTED_UDID" launchctl setenv X_API_KEY "$$X_API_KEY"
+      xcrun simctl spawn "$BOOTED_UDID" launchctl setenv API_BASE_URL "$API_BASE_URL"
+      xcrun simctl spawn "$BOOTED_UDID" launchctl setenv API_URL "$API_URL"
+      xcrun simctl spawn "$BOOTED_UDID" launchctl setenv X_API_KEY "$X_API_KEY"
 
       echo "[sim-env] Verifying injected vars:"
       for k in API_BASE_URL API_URL X_API_KEY; do
-        v="$$(xcrun simctl spawn "$$BOOTED_UDID" launchctl getenv "$$k" || true)"
-        [ "$$k" = "X_API_KEY" ] && v="***redacted***"
-        echo "$$k=$$v"
+        v="$(xcrun simctl spawn "$BOOTED_UDID" launchctl getenv "$k" || true)"
+        [ "$k" = "X_API_KEY" ] && v="***redacted***"
+        echo "$k=$v"
       done
 
       # Start Appium
       bash scripts/start-appium.sh
       bash scripts/wait-on-http.sh http://127.0.0.1:4723/status 45
-            
-      : <<'WDA_OFF'
-      echo "[wda] Waiting for WebDriverAgent (port 8100) to be ready…"
-      WDA_OK=0
-      for i in {1..240}; do
-        if curl -fsS http://127.0.0.1:8100/status >/dev/null 2>&1; then
-          echo "[wda] Ready"
-          WDA_OK=1
-          break
-        fi
-        sleep 1
-      done
-
-      if [ "$WDA_OK" -ne 1 ]; then
-        echo "[wda] Timed out waiting for WDA on http://127.0.0.1:8100/status"
-        echo "Dumping recent Appium log for clues:"
-        tail -n 400 artifacts/appium.log || true
-        exit 1
-      fi
-      WDA_OFF
-
+  
       # hosted API checks (from CI host)
-      ORIGIN="$$(printf '%s' "$$API_BASE_URL" | sed 's#/api$##')"
+      ORIGIN="$(printf '%s' "$API_BASE_URL" | sed 's#/api$##')"
       echo "[probe] Curling API from the CI host"
       set -x
-      curl -iS "$$ORIGIN/healthz" || true
-      curl -iS -H "x-api-key: $$X_API_KEY" "$$API_BASE_URL/users?page=2" || true
+      curl -iS "$ORIGIN/healthz" || true
+      curl -iS -H "x-api-key: $X_API_KEY" "$API_BASE_URL/users?page=2" || true
       set +x
 
       # Launch once (use bundle id) so logs start flowing (best-effort)
-      if [ -n "$${IOS_BUNDLE_ID:-}" ]; then
+      if [ -n "${IOS_BUNDLE_ID:-}" ]; then
         echo "[launch] Launching app (no console attach)"
-        xcrun simctl launch "$$BOOTED_UDID" "$$IOS_BUNDLE_ID" >/dev/null 2>&1 || true
+        xcrun simctl launch "$BOOTED_UDID" "$IOS_BUNDLE_ID" >/dev/null 2>&1 || true
         sleep 2
       fi
 
       # ===================== Guard: fail if any localhost calls happen =====================
       echo "[guard] Checking CFNetwork logs for localhost usage (should be none)"
-      ! xcrun simctl spawn "$$BOOTED_UDID" log show --last 2m --predicate 'subsystem == "com.apple.CFNetwork"' | grep -q "http://localhost" || {
+      ! xcrun simctl spawn "$BOOTED_UDID" log show --last 2m --predicate 'subsystem == "com.apple.CFNetwork"' | grep -q "http://localhost" || {
         echo "❌ Detected localhost calls in CFNetwork logs. Failing the build."
-        xcrun simctl spawn "$$BOOTED_UDID" log show --last 2m --predicate 'subsystem == "com.apple.CFNetwork"' | tail -n 200 || true
+        xcrun simctl spawn "$BOOTED_UDID" log show --last 2m --predicate 'subsystem == "com.apple.CFNetwork"' | tail -n 200 || true
         exit 1
       }
 
       # ===== Watch Appium in real-time & run chatty tests =====
-      ( tail -n +1 -f artifacts/appium.log & echo "$$!" > artifacts/tail.pid ) || true
+      ( tail -n +1 -f artifacts/appium.log & echo "$!" > artifacts/tail.pid ) || true
 
       # run Playwright chatty; dump logs if it fails
-      npx playwright test --reporter=list,junit --workers=1 --reporter-junit-output=junit-report.xml || {
-      echo "Playwright failed or stalled — dumping Appium log"
-      tail -n +1 artifacts/appium.log || true
-      kill "$$(cat artifacts/tail.pid)" 2>/dev/null || true
-      exit 1
+      npx playwright test --reporter=list --workers=1 || {
+        echo "Playwright failed or stalled — dumping Appium log"
+        tail -n +1 artifacts/appium.log || true
+        kill "$(cat artifacts/tail.pid)" 2>/dev/null || true
+        exit 1
       }
-      
+
       echo "[check] Expecting junit-report.xml in workspace:"
       ls -l junit-report.xml || echo "junit-report.xml is missing"
 
       # stop the live tail
-      kill "$$(cat artifacts/tail.pid)" 2>/dev/null || true
-
-
-      # stop the live tail
-      kill "$$(cat artifacts/tail.pid)" 2>/dev/null || true
+      kill "$(cat artifacts/tail.pid)" 2>/dev/null || true
 
       # stop appium
       bash scripts/stop-appium.sh || { echo "Dumping appium.log due to stop failure"; tail -n +1 artifacts/appium.log || true; exit 1; }
@@ -260,10 +236,9 @@ steps:
 
   - label: ":memo: Annotate JUnit"
     agents: { queue: default }
-    # This step only depends on the test step's artifacts
     depends_on: e2e
     plugins:
       - junit-annotate#v2.4.0:
-          artifacts: "junit-report.xml"   # exact filename written by Playwright
-          soft_fail: true                 # don't fail pipeline if it's missing
+          artifacts: "junit-report.xml"
+          soft_fail: true
     commands: "echo Annotating JUnit results"
