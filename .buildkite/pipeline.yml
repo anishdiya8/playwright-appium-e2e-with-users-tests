@@ -263,7 +263,6 @@ steps:
       - "artifacts/**"
 
   - wait
-
       - label: ":memo: Annotate JUnit"
         agents: { queue: default }
         depends_on: e2e
